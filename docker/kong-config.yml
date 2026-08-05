@@ -1,0 +1,11 @@
+_format_version: "3.0"
+_transform: true
+
+# ─── Kong declarative configuration (DB-less mode) ───
+# This file is mounted into the Kong container at /etc/kong/kong.yml.
+# Routes will be added incrementally as we build each service.
+
+services: []
+upstreams: []
+consumers: []
+plugins: []
