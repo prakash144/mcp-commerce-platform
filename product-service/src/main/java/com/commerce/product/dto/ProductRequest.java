@@ -17,6 +17,7 @@ public class ProductRequest {
     @DecimalMin("0.01")
     private BigDecimal price;
 
+    @NotBlank
     @Size(max = 50)
     private String sku;
 

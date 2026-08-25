@@ -21,7 +21,8 @@
            │     bridges both     │
 ┌──────────┼──────────────────────┼────────────────────────────────┐
 │          │                      │       BACKEND NETWORK          │
-│          │                      │       (private, no host access)│
+│          │                      │  (host-accessible for local    │
+│          │                      │   dev — remove for prod)       │
 │          ▼                      ▼                                │
 │   ┌────────────┐         ┌────────────┐                          │
 │   │  Postgres  │         │    Redis   │                          │
@@ -32,7 +33,7 @@
 │   ┌────────────┐    ┌────────────┐    ┌────────────┐             │
 │   │  Zookeeper │    │   Kafka    │    │   Schema   │             │
 │   │  :2181     │───▶│  :9092     │    │  Registry  │             │
-│   └────────────┘    └────────────┘    │  :8081     │             │
+│   └────────────┘    └────────────┘    │  :8089     │             │
 │                                       └────────────┘             │
 │                                                                  │
 │   ┌──────────────── SERVICE (to be built) ─────────────────┐     │
@@ -48,10 +49,10 @@
 | Layer | Containers | Network | Reachable from host? |
 |---|---|---|---|
 | Edge | Kong, Keycloak | `frontend` | Yes (:8000, :8001, :8080) |
-| Infrastructure | Postgres, Redis, Kafka, ZK, Schema Registry | `backend` | No |
-| Services | product-service, order-service, payment-service | `backend` | No |
+| Infrastructure | Postgres, Redis, Kafka, ZK, Schema Registry | `backend` | Yes (local dev only — remove for prod) |
+| Services | product-service, order-service, payment-service | `backend` | Yes (local dev only — remove for prod) |
 
-Kong and Keycloak sit on both networks — they are the only entry points into the backend.
+Kong and Keycloak sit on both networks — they are the entry points in production.
 
 ---
 
@@ -110,12 +111,13 @@ Kong and Keycloak sit on both networks — they are the only entry points into t
 | `5432` | Postgres | PostgreSQL | Host-accessible for debugging (DataGrip, psql) |
 | `6379` | Redis | Redis | Host-accessible |
 | `9092` | Kafka | Kafka protocol | Host-accessible |
-| `8081` | Schema Registry | HTTP | Host-accessible |
+| `8089` | Schema Registry | HTTP | Host-accessible (avoid 8081 conflict) |
 | `8080` | Keycloak | HTTP (OIDC) | Host-accessible |
+| `8081` | Product Service | REST | Host-accessible (Spring Boot) |
 | `8000` | Kong Proxy | HTTP/HTTPS | All client traffic enters here |
 | `8001` | Kong Admin API | HTTP | Debugging / plugin config |
 
-Service ports (`product-service-bk`, `order-service`, `payment-service`) are **not exposed to the host** — they're only reachable through Kong on the backend network. This enforces the architecture rule: "only the gateway is internet-facing."
+**Local dev note:** backend network is host-accessible for local development (services, DBs, Kafka). In production, add `internal: true` back to the backend network and route all traffic through Kong.
 
 ---
 

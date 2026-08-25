@@ -1,0 +1,3 @@
+ALTER TABLE products
+    ALTER COLUMN created_at TYPE TIMESTAMPTZ,
+    ALTER COLUMN updated_at TYPE TIMESTAMPTZ;
