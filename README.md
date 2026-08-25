@@ -135,6 +135,14 @@ protocol-specific best practices.
 
 ---
 
+## Session History
+
+| Session | Link | What was built |
+|---|---|---|
+| product-service-and-skills-setup | [OpenCode Session](https://opncd.ai/share/g9HqARE1) | Phase 0-2: Planning, infra (Docker Compose), Product Service REST (CRUD, validation, OpenAPI, error handling), opencode plugins + skills |
+
+---
+
 ## Documentation
 
 - [`plan.md`](./plan.md) — folder structures, phase plan, best practices per protocol
