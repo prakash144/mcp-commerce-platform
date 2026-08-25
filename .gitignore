@@ -21,3 +21,6 @@ target/
 
 # Docker volumes (local data)
 docker/postgres-data/
+
+# OpenCode cache (keep .opencode/skills/ in git)
+.opencode/cache/
