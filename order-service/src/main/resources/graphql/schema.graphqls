@@ -1,0 +1,56 @@
+scalar BigDecimal
+scalar DateTime
+
+type Query {
+    order(id: ID!): Order
+    ordersByCustomer(customerId: String, first: Int = 20, offset: Int = 0): OrderPage!
+}
+
+type Mutation {
+    createOrder(input: CreateOrderInput!): Order!
+    cancelOrder(id: ID!): Order!
+}
+
+type Order {
+    id: ID!
+    customerId: String!
+    status: OrderStatus!
+    totalAmount: BigDecimal!
+    currency: String!
+    items: [OrderItem!]!
+    createdAt: DateTime!
+    updatedAt: DateTime!
+}
+
+type OrderItem {
+    id: ID!
+    productId: ID!
+    productName: String!
+    unitPrice: BigDecimal!
+    quantity: Int!
+    lineTotal: BigDecimal!
+}
+
+type OrderPage {
+    orders: [Order!]!
+    totalCount: Int!
+    offset: Int!
+    limit: Int!
+}
+
+enum OrderStatus {
+    PENDING
+    CONFIRMED
+    CANCELLED
+}
+
+input OrderItemInput {
+    productId: ID!
+    quantity: Int!
+}
+
+input CreateOrderInput {
+    items: [OrderItemInput!]!
+    customerId: String
+    currency: String = "USD"
+}

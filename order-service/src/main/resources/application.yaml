@@ -1,0 +1,46 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: order-service
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/orderdb
+    username: commerce
+    password: commerce_pass
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    open-in-view: false
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  graphql:
+    graphiql:
+      enabled: true
+    schema:
+      printer:
+        enabled: true    # serves the raw merged schema at /graphql/schema.graphqls
+
+commerce:
+  product-service:
+    base-url: ${PRODUCT_SERVICE_URL:http://localhost:8081}
+  order:
+    # Identity fallback used when the gateway (X-User-Id header) is absent — local dev via curl.
+    default-customer-id: ${DEFAULT_CUSTOMER_ID:customer-demo}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always

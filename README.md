@@ -6,7 +6,7 @@ evolving a real microservices system into an AI-accessible platform.
 
 > **Core idea:** the business domain (Product, Order, Payment) stays constant.
 > The protocol used to expose it (REST, GraphQL, gRPC, MCP) is the variable.
-> See [`architect.md`](./architect.md) for the full reasoning.
+> See [`HLD Architect`](./docs/architect.md) for the full reasoning.
 
 ---
 
@@ -59,7 +59,7 @@ commerce-platform/
 └── infrastructure/             # k8s manifests, monitoring configs
 ```
 
-Full per-service folder layouts are in [`plan.md`](./plan.md).
+Full per-service folder layouts are in [`plan doc`](./docs/plan.md).
 
 ---
 
@@ -84,7 +84,7 @@ Claude / ChatGPT ──MCP──> mcp-server ──> Product REST / Order GraphQ
 ```
 
 Full diagrams, communication matrix, and an end-to-end request walkthrough are in
-[`architect.md`](./architect.md).
+[`HLD Architect`](./docs/architect.md).
 
 ---
 
@@ -106,10 +106,14 @@ docker compose -f docker/docker-compose.yml up -d
 
 Once up:
 - Product REST API: `http://localhost:8081/api/v1/products`
-- Order GraphQL: `http://localhost:8082/graphql`
+- Order GraphQL: `http://localhost:8082/graphql` (interactive editor: `http://localhost:8082/graphiql`)
 - Payment gRPC: `localhost:9090`
 - Jaeger UI: `http://localhost:16686`
 - Grafana: `http://localhost:3000`
+
+Note: order-service's `createOrder` calls product-service to validate products and snapshot
+their price — run both services (and Postgres) for full end-to-end flows. Per-service READMEs:
+[product-service](./product-service/README.md) · [order-service](./order-service/README.md).
 
 *(Ports above are placeholders — set them to match your `docker-compose.yml`.)*
 
@@ -117,18 +121,18 @@ Once up:
 
 ## Roadmap / Phases
 
-| Phase | Focus |
-|---|---|
-| 0 | Planning |
-| 1 | Foundation (repo, docker-compose, empty service skeletons) |
-| 2 | Product Service (REST) |
-| 3 | Order Service (GraphQL) |
-| 4 | Payment Service (gRPC) |
-| 5 | Event-Driven Architecture (Kafka) |
-| 6 | Observability |
-| 7 | MCP Server |
-| 8 | AI Layer (Anthropic/OpenAI SDK, LangGraph) |
-| 9 | Production Readiness (CI/CD, testing, security) |
+| Phase | Focus | Status |
+|---|---|---|
+| 0 | Planning | ✅ |
+| 1 | Foundation (repo, docker-compose, empty service skeletons) | ✅ |
+| 2 | Product Service (REST) | ✅ Core (CRUD, OpenAPI, error handling) |
+| 3 | Order Service (GraphQL) | ✅ Core (create/cancel/query, DataLoader, scalars, GraphiQL; tests + payment gRPC pending) |
+| 4 | Payment Service (gRPC) | ⬜ |
+| 5 | Event-Driven Architecture (Kafka) | ⬜ |
+| 6 | Observability | ⬜ |
+| 7 | MCP Server | ⬜ |
+| 8 | AI Layer (Anthropic/OpenAI SDK, LangGraph) | ⬜ |
+| 9 | Production Readiness (CI/CD, testing, security) | ⬜ |
 
 See [`plan.md`](./plan.md) for the full phase-by-phase checklist and
 protocol-specific best practices.
@@ -140,13 +144,17 @@ protocol-specific best practices.
 | Session | Link | What was built |
 |---|---|---|
 | product-service-and-skills-setup | [OpenCode Session](https://opncd.ai/share/g9HqARE1) | Phase 0-2: Planning, infra (Docker Compose), Product Service REST (CRUD, validation, OpenAPI, error handling), opencode plugins + skills |
+| order-service-and-graphql-bootcamp | `ses_f8cbc723bffeLgUhrQDsDK3Qwf` | Phase 3: Order Service GraphQL — schema + custom `BigDecimal`/`DateTime` scalars, Query/Mutation resolvers, DataLoader (N+1 fix), typed errors (`extensions.code`), GraphiQL, product-service REST integration, README + [GraphQL concepts guide](./docs/graphql-concepts.md) |
 
 ---
 
 ## Documentation
 
-- [`plan.md`](./plan.md) — folder structures, phase plan, best practices per protocol
-- [`architect.md`](./architect.md) — architecture diagrams, design principles, communication matrix, observability & security design
+- [`Plan`](./docs/plan.md) — folder structures, phase plan, best practices per protocol
+- [`HLD Architect`](./docs/architect.md) — architecture diagrams, design principles, communication matrix, observability & security design
+- [`GraphQL concepts (beginner guide)`](./docs/graphql-concepts.md) — REST-vs-GraphQL, resolvers, scalars, DataLoader/N+1, error shape (start here before reading order-service)
+- [`product-service/README.md`](./product-service/README.md) — REST service specifics
+- [`order-service/README.md`](./order-service/README.md) — GraphQL service specifics + internal flowcharts
 
 ---
 
