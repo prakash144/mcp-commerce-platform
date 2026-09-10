@@ -107,7 +107,7 @@ docker compose -f docker/docker-compose.yml up -d
 Once up:
 - Product REST API: `http://localhost:8081/api/v1/products`
 - Order GraphQL: `http://localhost:8082/graphql` (interactive editor: `http://localhost:8082/graphiql`)
-- Payment gRPC: `localhost:9090`
+- Payment gRPC: `localhost:50051` (REST gateway + Swagger UI: `localhost:8090`)
 - Jaeger UI: `http://localhost:16686`
 - Grafana: `http://localhost:3000`
 
@@ -127,7 +127,7 @@ their price — run both services (and Postgres) for full end-to-end flows. Per-
 | 1 | Foundation (repo, docker-compose, empty service skeletons) | ✅ |
 | 2 | Product Service (REST) | ✅ Core (CRUD, OpenAPI, error handling) |
 | 3 | Order Service (GraphQL) | ✅ Core (create/cancel/query, DataLoader, scalars, GraphiQL; tests + payment gRPC pending) |
-| 4 | Payment Service (gRPC) | ⬜ |
+| 4 | Payment Service (gRPC) | ✅ |
 | 5 | Event-Driven Architecture (Kafka) | ⬜ |
 | 6 | Observability | ⬜ |
 | 7 | MCP Server | ⬜ |
@@ -136,6 +136,26 @@ their price — run both services (and Postgres) for full end-to-end flows. Per-
 
 See [`plan.md`](./plan.md) for the full phase-by-phase checklist and
 protocol-specific best practices.
+
+---
+
+## Todos
+
+> Legend: 🔴 **Must** complete (gates the working demo) · 🟡 **Should** (production-style) · 🔵 **Nice-to-have**
+
+| Area | Task | Priority | Status |
+|---|---|---|---|
+| **Frontend** | Build React + Vite storefront (`web/`) — catalog, cart, checkout, order status | 🔴 | ⬜ |
+| **Backend** | Replace order-service `StubPaymentClient` with a real gRPC `Charge` → payment-service `:50051` | 🔴 | ⬜ |
+| **Backend** | Testcontainers unit/integration tests for product + order services (≥80% coverage) | 🔴 | ⬜ |
+| **Edge** | Kong API Gateway — routes for product/order (+ payment REST), JWT plugin, rate limiting | 🟡 | ⬜ |
+| **Edge** | Keycloak — realm, web client (PKCE), MCP client-credentials, JWKS wired to Kong | 🟡 | ⬜ |
+| **Events** | Kafka events (Phase 5) — OrderCreated/Cancelled, PaymentSucceeded/Failed, + DLQ | 🟡 | ⬜ |
+| **Observability** | Phase 6 — Jaeger tracing, Prometheus/Grafana, structured logs with correlation ID | 🟡 | ⬜ |
+| **AI** | MCP server tools over existing APIs (Phase 7) + AI layer (Phase 8) | 🟡 | ⬜ |
+| **CI** | CI/CD, load tests, security pass (Phase 9) | 🟡 | ⬜ |
+| **Frontend** | Admin dashboard — product management, order view, refunds | 🔵 | ⬜ |
+| **Perf** | Redis read-through cache for product-service | 🔵 | ⬜ |
 
 ---
 
