@@ -1,11 +1,16 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"github.com/commerce/payment-service/api"
 	"github.com/commerce/payment-service/internal/config"
 	"github.com/commerce/payment-service/internal/handler"
 	"github.com/commerce/payment-service/internal/middleware"
@@ -13,6 +18,10 @@ import (
 	"github.com/commerce/payment-service/internal/repository"
 	"github.com/commerce/payment-service/internal/server"
 	"github.com/commerce/payment-service/internal/service"
+	paymentv1 "github.com/commerce/payment-service/pkg/generated"
+	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
@@ -50,10 +59,66 @@ func main() {
 		}
 	}()
 
+	restServer := newRESTGateway(logger, cfg)
+	go func() {
+		logger.Printf("REST gateway + Swagger UI listening on :%d", cfg.RESTPort)
+		if err := restServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Fatalf("REST gateway error: %v", err)
+		}
+	}()
+
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	logger.Println("shutting down gracefully")
 	srv.GracefulStop()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := restServer.Shutdown(ctx); err != nil {
+		logger.Printf("REST shutdown error: %v", err)
+	}
 	logger.Println("server stopped")
+}
+
+func newRESTGateway(logger *log.Logger, cfg *config.Config) *http.Server {
+	ctx := context.Background()
+
+	mux := runtime.NewServeMux()
+	gwAddr := fmt.Sprintf("localhost:%d", cfg.GRPCPort)
+	gwOpts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
+	if err := registerPaymentService(ctx, mux, gwAddr, gwOpts); err != nil {
+		logger.Fatalf("failed to register REST gateway: %v", err)
+	}
+
+	mux.HandlePath("GET", "/swagger.json", func(w http.ResponseWriter, r *http.Request, _ map[string]string) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(api.SwaggerJSON)
+	})
+	mux.HandlePath("GET", "/docs", func(w http.ResponseWriter, r *http.Request, _ map[string]string) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write(api.IndexHTML)
+	})
+
+	return &http.Server{
+		Addr:              fmt.Sprintf(":%d", cfg.RESTPort),
+		Handler:           allowCORS(mux),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+}
+
+func registerPaymentService(ctx context.Context, mux *runtime.ServeMux, target string, opts []grpc.DialOption) error {
+	return paymentv1.RegisterPaymentServiceHandlerFromEndpoint(ctx, mux, target, opts)
+}
+
+func allowCORS(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		h.ServeHTTP(w, r)
+	})
 }

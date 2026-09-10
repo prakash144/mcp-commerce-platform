@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package payment.v1;
 
+import "google/api/annotations.proto";
+
 option go_package = "github.com/commerce/payment-service/pkg/generated;paymentv1";
 
 enum PaymentStatus {
@@ -97,9 +99,33 @@ message GetPaymentResponse {
 }
 
 service PaymentService {
-  rpc Charge(ChargeRequest) returns (ChargeResponse);
-  rpc Refund(RefundRequest) returns (RefundResponse);
-  rpc Capture(CaptureRequest) returns (CaptureResponse);
-  rpc Void(VoidRequest) returns (VoidResponse);
-  rpc GetPayment(GetPaymentRequest) returns (GetPaymentResponse);
+  rpc Charge(ChargeRequest) returns (ChargeResponse) {
+    option (google.api.http) = {
+      post: "/v1/payments"
+      body: "*"
+    };
+  }
+  rpc Refund(RefundRequest) returns (RefundResponse) {
+    option (google.api.http) = {
+      post: "/v1/payments/{payment_id}/refund"
+      body: "*"
+    };
+  }
+  rpc Capture(CaptureRequest) returns (CaptureResponse) {
+    option (google.api.http) = {
+      post: "/v1/payments/{payment_id}/capture"
+      body: "*"
+    };
+  }
+  rpc Void(VoidRequest) returns (VoidResponse) {
+    option (google.api.http) = {
+      post: "/v1/payments/{payment_id}/void"
+      body: "*"
+    };
+  }
+  rpc GetPayment(GetPaymentRequest) returns (GetPaymentResponse) {
+    option (google.api.http) = {
+      get: "/v1/payments/{id}"
+    };
+  }
 }

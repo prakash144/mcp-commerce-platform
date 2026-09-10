@@ -8,6 +8,7 @@ import (
 
 type Config struct {
 	GRPCPort   int
+	RESTPort   int
 	DBHost     string
 	DBPort     int
 	DBUser     string
@@ -19,6 +20,7 @@ type Config struct {
 func Load() *Config {
 	return &Config{
 		GRPCPort:   getIntEnv("GRPC_PORT", 50051),
+		RESTPort:   getIntEnv("REST_PORT", 8090),
 		DBHost:     getEnv("DB_HOST", "localhost"),
 		DBPort:     getIntEnv("DB_PORT", 5432),
 		DBUser:     getEnv("DB_USER", "commerce"),

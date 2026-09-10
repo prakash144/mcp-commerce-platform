@@ -84,7 +84,8 @@ func toGRPCError(err error) error {
 		return status.Error(codes.NotFound, err.Error())
 	case errors.Is(err, service.ErrMissingKey),
 		errors.Is(err, service.ErrInvalidAmount),
-		errors.Is(err, service.ErrInvalidCurrency):
+		errors.Is(err, service.ErrInvalidCurrency),
+		errors.Is(err, service.ErrInvalidPaymentID):
 		return status.Error(codes.InvalidArgument, err.Error())
 	case errors.Is(err, service.ErrIllegalState):
 		return status.Error(codes.FailedPrecondition, err.Error())

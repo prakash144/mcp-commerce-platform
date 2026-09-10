@@ -1,0 +1,412 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "payment.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "PaymentService"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/payments": {
+      "post": {
+        "operationId": "PaymentService_Charge",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ChargeResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1ChargeRequest"
+            }
+          }
+        ],
+        "tags": [
+          "PaymentService"
+        ]
+      }
+    },
+    "/v1/payments/{id}": {
+      "get": {
+        "operationId": "PaymentService_GetPayment",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetPaymentResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "PaymentService"
+        ]
+      }
+    },
+    "/v1/payments/{paymentId}/capture": {
+      "post": {
+        "operationId": "PaymentService_Capture",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1CaptureResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "paymentId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/PaymentServiceCaptureBody"
+            }
+          }
+        ],
+        "tags": [
+          "PaymentService"
+        ]
+      }
+    },
+    "/v1/payments/{paymentId}/refund": {
+      "post": {
+        "operationId": "PaymentService_Refund",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1RefundResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "paymentId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1PaymentServiceRefundBody"
+            }
+          }
+        ],
+        "tags": [
+          "PaymentService"
+        ]
+      }
+    },
+    "/v1/payments/{paymentId}/void": {
+      "post": {
+        "operationId": "PaymentService_Void",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1VoidResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "paymentId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/PaymentServiceVoidBody"
+            }
+          }
+        ],
+        "tags": [
+          "PaymentService"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "PaymentServiceCaptureBody": {
+      "type": "object",
+      "properties": {
+        "amountMinor": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "PaymentServiceVoidBody": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "paymentV1Refund": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "paymentId": {
+          "type": "string"
+        },
+        "amountMinor": {
+          "type": "string",
+          "format": "int64"
+        },
+        "currency": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        }
+      }
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "@type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": {}
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "v1CaptureResponse": {
+      "type": "object",
+      "properties": {
+        "payment": {
+          "$ref": "#/definitions/v1Payment"
+        }
+      }
+    },
+    "v1ChargeRequest": {
+      "type": "object",
+      "properties": {
+        "idempotencyKey": {
+          "type": "string"
+        },
+        "orderId": {
+          "type": "string"
+        },
+        "customerId": {
+          "type": "string"
+        },
+        "amountMinor": {
+          "type": "string",
+          "format": "int64"
+        },
+        "currency": {
+          "type": "string"
+        },
+        "method": {
+          "$ref": "#/definitions/v1PaymentMethod"
+        }
+      }
+    },
+    "v1ChargeResponse": {
+      "type": "object",
+      "properties": {
+        "payment": {
+          "$ref": "#/definitions/v1Payment"
+        },
+        "idempotencyKey": {
+          "type": "string"
+        }
+      }
+    },
+    "v1GetPaymentResponse": {
+      "type": "object",
+      "properties": {
+        "payment": {
+          "$ref": "#/definitions/v1Payment"
+        }
+      }
+    },
+    "v1Payment": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "orderId": {
+          "type": "string"
+        },
+        "customerId": {
+          "type": "string"
+        },
+        "amountMinor": {
+          "type": "string",
+          "format": "int64"
+        },
+        "currency": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/definitions/v1PaymentStatus"
+        },
+        "method": {
+          "$ref": "#/definitions/v1PaymentMethod"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        },
+        "failureReason": {
+          "type": "string"
+        }
+      }
+    },
+    "v1PaymentMethod": {
+      "type": "string",
+      "enum": [
+        "PAYMENT_METHOD_UNSPECIFIED",
+        "PAYMENT_METHOD_CARD",
+        "PAYMENT_METHOD_BANK_TRANSFER",
+        "PAYMENT_METHOD_WALLET"
+      ],
+      "default": "PAYMENT_METHOD_UNSPECIFIED"
+    },
+    "v1PaymentServiceRefundBody": {
+      "type": "object",
+      "properties": {
+        "idempotencyKey": {
+          "type": "string"
+        },
+        "amountMinor": {
+          "type": "string",
+          "format": "int64"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "v1PaymentStatus": {
+      "type": "string",
+      "enum": [
+        "PAYMENT_STATUS_UNSPECIFIED",
+        "PAYMENT_STATUS_PENDING",
+        "PAYMENT_STATUS_AUTHORIZED",
+        "PAYMENT_STATUS_CAPTURED",
+        "PAYMENT_STATUS_REFUNDED",
+        "PAYMENT_STATUS_PARTIALLY_REFUNDED",
+        "PAYMENT_STATUS_VOIDED",
+        "PAYMENT_STATUS_FAILED"
+      ],
+      "default": "PAYMENT_STATUS_UNSPECIFIED"
+    },
+    "v1RefundResponse": {
+      "type": "object",
+      "properties": {
+        "payment": {
+          "$ref": "#/definitions/v1Payment"
+        },
+        "refund": {
+          "$ref": "#/definitions/paymentV1Refund"
+        }
+      }
+    },
+    "v1VoidResponse": {
+      "type": "object",
+      "properties": {
+        "payment": {
+          "$ref": "#/definitions/v1Payment"
+        }
+      }
+    }
+  }
+}

@@ -12,11 +12,12 @@ import (
 )
 
 var (
-	ErrPaymentNotFound = errors.New("payment not found")
-	ErrInvalidAmount   = errors.New("amount must be greater than zero")
-	ErrInvalidCurrency = errors.New("currency must be a 3-letter ISO 4217 code")
-	ErrIllegalState    = errors.New("operation not allowed in current payment state")
-	ErrMissingKey      = errors.New("idempotency key is required")
+	ErrPaymentNotFound  = errors.New("payment not found")
+	ErrInvalidAmount    = errors.New("amount must be greater than zero")
+	ErrInvalidCurrency  = errors.New("currency must be a 3-letter ISO 4217 code")
+	ErrIllegalState     = errors.New("operation not allowed in current payment state")
+	ErrMissingKey       = errors.New("idempotency key is required")
+	ErrInvalidPaymentID = errors.New("payment id must be a valid UUID")
 )
 
 type ChargeInput struct {
@@ -81,6 +82,9 @@ func (s *paymentService) Charge(ctx context.Context, in ChargeInput) (*model.Pay
 }
 
 func (s *paymentService) Capture(ctx context.Context, paymentID string, amountMinor int64) (*model.Payment, error) {
+	if !validUUID(paymentID) {
+		return nil, ErrInvalidPaymentID
+	}
 	p, err := s.repo.FindByID(paymentID)
 	if err != nil {
 		return nil, mapErr(err)
@@ -99,6 +103,9 @@ func (s *paymentService) Capture(ctx context.Context, paymentID string, amountMi
 }
 
 func (s *paymentService) Void(ctx context.Context, paymentID, reason string) (*model.Payment, error) {
+	if !validUUID(paymentID) {
+		return nil, ErrInvalidPaymentID
+	}
 	p, err := s.repo.FindByID(paymentID)
 	if err != nil {
 		return nil, mapErr(err)
@@ -116,6 +123,9 @@ func (s *paymentService) Void(ctx context.Context, paymentID, reason string) (*m
 func (s *paymentService) Refund(ctx context.Context, paymentID, idempotencyKey string, amountMinor int64, reason string) (*model.Payment, *model.Refund, error) {
 	if strings.TrimSpace(idempotencyKey) == "" {
 		return nil, nil, ErrMissingKey
+	}
+	if !validUUID(paymentID) {
+		return nil, nil, ErrInvalidPaymentID
 	}
 	if existing, err := s.repo.FindRefundByIdempotencyKey(idempotencyKey); err == nil {
 		p, perr := s.repo.FindByID(existing.PaymentID)
@@ -183,6 +193,9 @@ func (s *paymentService) Refund(ctx context.Context, paymentID, idempotencyKey s
 }
 
 func (s *paymentService) GetByID(ctx context.Context, id string) (*model.Payment, error) {
+	if !validUUID(id) {
+		return nil, ErrInvalidPaymentID
+	}
 	p, err := s.repo.FindByID(id)
 	if err != nil {
 		return nil, mapErr(err)
@@ -195,6 +208,11 @@ func mapErr(err error) error {
 		return ErrPaymentNotFound
 	}
 	return err
+}
+
+func validUUID(id string) bool {
+	_, err := uuid.Parse(id)
+	return err == nil
 }
 
 func validCurrency(c string) bool {
