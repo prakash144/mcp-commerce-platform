@@ -6,14 +6,14 @@ test.describe('Storefront full journey', () => {
   test('browse → cart → checkout → order confirmed', async ({ page }) => {
     // Home: hero + featured products
     await page.goto('/')
-    await expect(page.getByRole('heading', { name: /Considered goods/ })).toBeVisible()
-    await expect(page.getByRole('link', { name: /Shop the collection/ })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /Everyday essentials/ })).toBeVisible()
+    await expect(page.getByRole('link', { name: /Shop now/ })).toBeVisible()
     await page.screenshot({ path: `${SCREENSHOTS}/01-home.png`, fullPage: true })
     await expect(page).toHaveScreenshot('01-home.png', { fullPage: true })
 
     // Catalog: real products from product-service (REST via proxy)
-    await page.getByRole('link', { name: 'Shop the collection' }).click()
-    await expect(page.getByRole('heading', { name: 'The Collection' })).toBeVisible()
+    await page.getByRole('link', { name: 'Shop now' }).click()
+    await expect(page.getByRole('heading', { name: 'Shop' })).toBeVisible()
     const cards = page.locator('a[href^="/products/"]')
     await expect(cards.first()).toBeVisible()
     await expect(cards.first()).toContainText(/Add to cart/)
@@ -57,10 +57,10 @@ test.describe('Storefront full journey', () => {
 
   test('pages expose a sound accessibility structure', async ({ page }) => {
     await page.goto('/')
-    await expect(page.getByRole('heading', { name: /Considered goods/ })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /Everyday essentials/ })).toBeVisible()
     const home = await page.locator('body').ariaSnapshot()
     expect(home).toContain('banner')
-    expect(home).toContain('link "Lumen')
+    expect(home).toContain('link "Apna')
     console.log(home.split('\n').slice(0, 22).join('\n'))
   })
 })

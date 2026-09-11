@@ -52,7 +52,7 @@ export function CatalogPage() {
       <div className="flex flex-wrap items-end justify-between gap-4 pb-8">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">
-            {q ? `Results for "${q}"` : 'The Collection'}
+            {q ? `Results for "${q}"` : 'Shop'}
           </h1>
           {data && (
             <p className="mt-1 text-sm text-zinc-500">

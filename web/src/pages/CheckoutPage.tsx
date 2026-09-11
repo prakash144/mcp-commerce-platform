@@ -100,13 +100,13 @@ export function CheckoutPage() {
               </div>
               <div className="flex justify-between border-t border-zinc-200 pt-3">
                 <dt className="font-semibold text-zinc-900">Total</dt>
-                <dd className="font-semibold text-zinc-900">{formatMoney(total())} USD</dd>
+                <dd className="font-semibold text-zinc-900">{formatMoney(total())}</dd>
               </div>
             </dl>
 
             <div className="mt-5 flex items-center gap-2 rounded-xl bg-white p-3 text-xs text-zinc-500">
               <CreditCard className="h-4 w-4" />
-              Demo mode — payment is processed by the integrated services
+              Payment handled server-side via the order and payment services
             </div>
 
             {error && (
@@ -122,7 +122,7 @@ export function CheckoutPage() {
             >
               {createOrder.isPending ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin" /> Charging payment…
+                  <Loader2 className="h-4 w-4 animate-spin" /> Processing payment…
                 </>
               ) : (
                 <>

@@ -1,5 +1,5 @@
 import { Link, Outlet, useNavigate } from 'react-router-dom'
-import { Search, ShoppingBag, Zap } from 'lucide-react'
+import { ShoppingBag, Store } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { useCart } from '../store/cart'
 
@@ -37,7 +37,19 @@ function SearchBar({ className }: { className?: string }) {
       className={`relative ${className ?? ''}`}
       aria-label="Search products"
     >
-      <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+      <svg
+        aria-hidden
+        className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <circle cx="11" cy="11" r="8" />
+        <path d="m21 21-4.3-4.3" />
+      </svg>
       <input
         type="search"
         value={query}
@@ -54,15 +66,15 @@ export function Layout() {
   return (
     <div className="flex min-h-screen flex-col bg-white">
       <p className="bg-zinc-950 px-4 py-2 text-center text-xs font-medium tracking-wide text-white">
-        Free shipping on orders over $50 · Demo storefront on REST + GraphQL + gRPC
+        Free shipping across India on all orders · Easy 7-day returns
       </p>
       <header className="sticky top-0 z-40 border-b border-zinc-100 bg-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:px-6">
           <Link to="/" className="flex items-center gap-2 text-lg font-semibold tracking-tight text-zinc-900">
-            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-950 text-white">
-              <Zap className="h-4 w-4" />
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-teal-700 text-white">
+              <Store className="h-4 w-4" />
             </span>
-            Lumen <span className="text-teal-700">&amp;</span> Co.
+            Apna<span className="text-teal-700">Kart</span>
           </Link>
           <SearchBar className="order-3 w-full md:order-none md:w-auto md:flex-1" />
           <nav className="ml-auto flex items-center gap-1 sm:gap-2">
@@ -83,14 +95,14 @@ export function Layout() {
         <div className="mx-auto grid max-w-6xl gap-8 px-4 py-12 sm:px-6 md:grid-cols-3">
           <div>
             <p className="flex items-center gap-2 font-semibold text-zinc-900">
-              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-zinc-950 text-white">
-                <Zap className="h-3.5 w-3.5" />
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-teal-700 text-white">
+                <Store className="h-3.5 w-3.5" />
               </span>
-              Lumen <span className="text-teal-700">&amp;</span> Co.
+              Apna<span className="text-teal-700">Kart</span>
             </p>
             <p className="mt-3 max-w-xs text-sm leading-relaxed text-zinc-500">
-              A premium storefront on a real microservices commerce platform — REST,
-              GraphQL, gRPC and (soon) event-driven Kafka.
+              Everyday essentials, electronics and more — delivered across India with
+              secure payments on a real microservices commerce platform.
             </p>
           </div>
           <div>
@@ -100,24 +112,27 @@ export function Layout() {
                 <Link to="/catalog" className="hover:text-zinc-900">All products</Link>
               </li>
               <li>
-                <Link to="/catalog?q=keyboard" className="hover:text-zinc-900">Keyboards</Link>
+                <Link to="/catalog?q=sneakers" className="hover:text-zinc-900">Footwear</Link>
               </li>
               <li>
-                <Link to="/catalog?q=mouse" className="hover:text-zinc-900">Mice</Link>
+                <Link to="/catalog?q=monitor" className="hover:text-zinc-900">Monitors</Link>
+              </li>
+              <li>
+                <Link to="/catalog?q=audio" className="hover:text-zinc-900">Audio</Link>
               </li>
             </ul>
           </div>
           <div>
-            <p className="text-sm font-semibold text-zinc-900">Why us</p>
+            <p className="text-sm font-semibold text-zinc-900">Why ApnaKart</p>
             <ul className="mt-3 space-y-2 text-sm text-zinc-500">
-              <li>Free shipping over $50</li>
-              <li>30-day easy returns</li>
-              <li>Secure payment via integrated gateways</li>
+              <li>Free shipping on all orders</li>
+              <li>7-day easy returns</li>
+              <li>Secure payments via integrated gateways</li>
             </ul>
           </div>
         </div>
         <div className="border-t border-zinc-100 py-6 text-center text-xs text-zinc-400">
-          © {new Date().getFullYear()} Lumen &amp; Co. — demo storefront
+          © {new Date().getFullYear()} ApnaKart
         </div>
       </footer>
     </div>

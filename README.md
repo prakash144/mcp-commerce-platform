@@ -66,7 +66,7 @@ Full per-service folder layouts are in [`plan doc`](./docs/plan.md).
 ## Architecture at a Glance
 
 ```
-Web Client
+Web Client (Storefront + Admin dashboard, web/)
    |
 REST / GraphQL
    |
@@ -123,24 +123,32 @@ sequenceDiagram
 
 ## UI ↔ API Integration Map
 
-Which page calls which API today, and where the AI/MCP layer will plug in later:
+Which page calls which API today (storefront + admin), and where the AI/MCP layer plugs in later:
 
 ```mermaid
 flowchart LR
     subgraph UI[Storefront — web/]
         H[Home] & CAT[Catalog] & PDP[Product detail] & CART[Cart] & CO[Checkout] & OS[Order status]
     end
-    subgraph API[Service APIs]
-        P[product-service<br/>REST :8081<br/>GET /products, GET /products/{id}]
-        O[order-service<br/>GraphQL :8082<br/>createOrder, order(id)]
-        PAY[payment-service<br/>gRPC :50051<br/>Charge · Refund · Capture · Void · GetPayment]
+    subgraph ADM[Admin — web/admin]
+        D[Dashboard] & AP[Products CRUD] & AO[Orders + cancel] & PY[Payments + refund]
     end
-    H -->|useProducts| P
-    CAT -->|useProducts: page + sort + q filter| P
-    PDP -->|useProduct| P
-    CART -->|local-only — Zustand persist| CART
-    CO -->|useCreateOrder| O
-    OS -->|useOrder| O
+    subgraph API[Service APIs]
+        P[product-service<br/>REST :8081<br/>GET /products · POST /products · PUT/DELETE /products/:id]
+        O[order-service<br/>GraphQL :8082<br/>createOrder · orders · orderStats · cancelOrder]
+        PAY[payment-service<br/>gRPC :50051 + REST gateway :8090<br/>Charge · Refund · Capture · Void · Get · List]
+    end
+    H -->|useProducts — first 8 featured| P
+    CAT -->|useProducts — server-side page + sort| P
+    PDP -->|useProduct id| P
+    CO -->|useCreateOrder — createOrder mutation| O
+    OS -->|useOrder id| O
+    D -->|orderStats totalOrders + revenue · recent orders| O
+    D -->|products totalElements| P
+    D -->|payments totalCount| PAY
+    AP -->|createProduct · updateProduct · deleteProduct| P
+    AO -->|orders status + page · cancelOrder| O
+    PY -->|GET /v1/payments · POST /v1/payments/:id/refund| PAY
     O -. 🔴 real gRPC Charge (TODO).-> PAY
 
     subgraph AI[Future — Phases 7-8]
@@ -149,82 +157,134 @@ flowchart LR
     end
 ```
 
+Notes:
+
+- **Search `q` on Catalog** is client-side — it filters the page already loaded from `useProducts`; pagination and sort run on product-service.
+- **Cart** is local-only, persisted to `localStorage` via Zustand — no API call.
+- **Dashboard KPIs** come from three live calls: `orderStats` (orders + revenue), `products.totalElements`, and `payments.totalCount`.
+- **Refunds & admin payments** go through the payment-service REST gateway (`:8090`, same gRPC backend); Order-cancel hits order-service GraphQL.
+- **`order-service → payment-service`** still uses `StubPaymentClient` — the real gRPC `Charge` is the 🔴 TODO above.
+
 ---
 
 ## Getting Started
 
-### 1. Infrastructure via Docker
+**What you'll run and why** — Docker provides just the infrastructure (Postgres);
+the three services and the storefront run on your machine so you can watch them
+separately. Every service auto-creates + migrates its own database on first boot
+(`productdb`, `orderdb`, `paymentdb`) and product-service seeds sample products.
 
-The Docker Compose file runs **infrastructure** (Postgres, Redis, Kafka, Keycloak,
-Kong). The three business services and the storefront run locally on your machine.
+### Option A — one command (recommended)
 
-**Minimum for the storefront demo** (used by the E2E tests — Postgres only):
+```bash
+./scripts/run-demo.sh
+```
+
+The script checks prerequisites, starts Postgres (compose), then starts the three
+services + the storefront (if a port is already in use it reuses it). Full logs in
+`./logs/*.log`. When it finishes, open **http://localhost:5173**.
+
+Prerequisites: Docker, Java 21, Maven, Go 1.2x, Node 20+.
+
+### Option B — step by step (to understand the moving parts)
+
+**Step 1 — infrastructure.** Postgres is enough for the demo; the rest (Redis,
+Kafka, Keycloak, Kong) is for later phases:
 
 ```bash
 docker compose -f docker/docker-compose.yml up -d postgres
+# optional — full infra: docker compose -f docker/docker-compose.yml up -d
 ```
 
-**Full infra** (also brings up Redis, Kafka + schema registry, Keycloak, Kong):
-
-```bash
-docker compose -f docker/docker-compose.yml up -d
-```
-
-> Kong ships with an empty `kong-config.yml` — routes are enabled in the
-> "API Gateway" todo. Keycloak boots with `admin/admin` but no realm is configured yet.
-
-### 2. Run the services (each in its own terminal)
+**Step 2 — the three services** (one terminal each):
 
 | Service | Command | Ports |
 |---|---|---|
 | product-service | `cd product-service && ./mvnw spring-boot:run` | REST `8081` |
 | order-service | `cd order-service && mvn spring-boot:run -q` | GraphQL `8082` (GraphiQL on `/graphiql`) |
-| payment-service | see [`payment-service/README.md`](./payment-service/README.md) | gRPC `50051`, REST+Swagger `8090` |
+| payment-service | `cd payment-service && go run ./cmd/server` | gRPC `50051`, REST+Swagger `8090` |
 
-Databases are created/auto-migrated by each service on boot
-(`productdb`, `orderdb`, `paymentdb`); sample products are seeded on
-product-service startup.
+> order-service has **no Maven wrapper** — use system `mvn`.
 
-### 3. Run + test the storefront
+**Step 3 — the storefront**:
 
 ```bash
 cd web
-npm install
-npm run dev        # http://localhost:5173
+npm install      # first time only
+npm run dev      # http://localhost:5173
 ```
 
-Vite dev-proxies `/api` → `:8081` and `/graphql` → `:8082` (Kong replaces this in
-production). To exercise the full loop you need Postgres + product-service +
-order-service running.
+Vite dev-proxies `/api` → `:8081`, `/graphql` → `:8082` and `/v1` → `:8090`
+(Kong replaces this in production). Click through: browse → add to cart → checkout →
+order **CONFIRMED**. The **admin dashboard** lives at **http://localhost:5173/admin**
+(no auth yet — Keycloak comes later): Dashboard KPIs, Products CRUD, Orders
+view/filter/cancel, Payments view/filter/refund.
 
-**E2E tests** (journey + accessibility + visual regression):
-
-```bash
-cd web
-npx playwright test                 # run all
-npx playwright test --update-snapshots   # re-baseline screenshots after intentional UI changes
-npx playwright show-report          # open the HTML report
-```
-
-### 4. Smoke-check every layer
+**Step 4 — verify every layer** (run with the stack up):
 
 ```bash
-# Product catalog
+# Product REST
 curl "http://localhost:8081/api/v1/products?page=0&size=5"
 
-# Order GraphQL — valid mutation returns a CONFIRMED order
+# Order GraphQL — createOrder returns an Order! directly; customerId is a UUID
 curl -X POST http://localhost:8082/graphql -H 'Content-Type: application/json' -d '{
-  "query": "mutation($qty:Int!){createOrder(input:{customerId:\"test-customer\",items:[{productId:\"11111111-1111-1111-1111-111111111111\",quantity:$qty}]}){order{id status totalAmount}}}",
-  "variables": { "qty": 1 }
+  "query": "mutation($id:ID!,$qty:Int!){createOrder(input:{customerId:\"11111111-1111-1111-1111-111111111111\",currency:\"INR\",items:[{productId:$id,quantity:$qty}]}){id status totalAmount currency}}",
+  "variables": { "id": "11111111-1111-1111-1111-111111111112", "qty": 1 }
 }'
 
-# Payment service (gRPC): health
+# Order GraphQL — list all orders + store stats (drives the admin dashboard)
+curl -s -X POST http://localhost:8082/graphql -H 'Content-Type: application/json' -d '{
+  "query": "{ orderStats { totalOrders revenue } orders(first: 5, status: CONFIRMED) { totalCount orders { id status totalAmount } } }"
+}'
+
+# Payment gRPC health + REST charge (customerId must be a UUID)
 grpcurl -plaintext localhost:50051 grpc.health.v1.Health/Check
-# Payment REST + Swagger UI: http://localhost:8090/docs
+curl -X POST http://localhost:8090/v1/payments -H 'Content-Type: application/json' -d \
+  '{"idempotencyKey":"smoke-001","orderId":"11111111-1111-1111-1111-111111111111","customerId":"11111111-1111-1111-1111-111111111111","amountMinor":2999,"currency":"INR","method":"PAYMENT_METHOD_CARD"}'
+
+# Payment REST — list + filter (drives the admin payments page)
+curl -s "http://localhost:8090/v1/payments?page=0&page_size=5&status=PAYMENT_STATUS_CAPTURED"
 ```
 
-> ⚠️ Known gap: order-service currently pays through a **stub** that always
-> succeeds. The real gRPC `Charge` → payment-service is the next 🔴 todo.
+**Interactive API tooling per service** (each service is documented by the tool
+that fits its protocol):
+
+| Service | Tool | URL |
+|---|---|---|
+| product-service (REST) | Swagger UI | `http://localhost:8081/swagger-ui.html` (spec at `/api-docs`) |
+| order-service (GraphQL) | GraphiQL | `http://localhost:8082/graphiql` |
+| payment-service (gRPC + REST gateway) | Swagger UI | `http://localhost:8090/docs` |
+
+> Why no Swagger for order-service? Swagger/OpenAPI documents **REST** endpoints.
+> order-service exposes **GraphQL** (single POST `/graphql`), so its tooling is
+> GraphiQL instead. If you load `/graphiql`, window `$` toggles the schema docs.
+
+### Testing
+
+```bash
+# Frontend E2E (journey + accessibility + visual regression) — needs services up
+cd web
+npx playwright test                       # run all
+npx playwright test --update-snapshots    # re-baseline screenshots after intentional UI changes
+npx playwright show-report                # open the HTML report
+
+# Service unit tests (each in its directory)
+cd payment-service && go test ./...       # 78% svc coverage
+cd product-service && ./mvnw test
+cd order-service && mvn test
+```
+
+### Troubleshooting & gotchas
+
+- **`GET /graphql` → 405** is normal — GraphQL is POST-only.
+- **`customerId` must be a UUID** in order-service and payment-service (Postgres
+  `uuid` columns); arbitrary strings fail with `SQLSTATE 22P02`.
+- **`createOrder` returns `Order!` directly** — there is no `{ order { ... } }` wrapper.
+- **🔥 Order payment is still a stub** (always succeeds, no real Charge yet) — the
+  gRPC `Charge` integration is the top 🔴 todo. Until then `payment-service` is
+  exercised independently (curl/grcpcurl/Swagger above).
+- Services bind `localhost` only; if a port is taken the script reuses the running
+  process rather than starting a duplicate.
 
 Per-service READMEs: [product-service](./product-service/README.md) ·
 [order-service](./order-service/README.md) · [payment-service](./payment-service/README.md).
@@ -258,6 +318,8 @@ protocol-specific best practices.
 | Area | Task | Priority | Status |
 |---|---|---|---|
 | **Frontend** | Build React + Vite storefront (`web/`) — catalog, cart, checkout, order status | 🔴 | ✅ |
+| **Frontend** | Admin dashboard (`/admin`) — Dashboard KPIs, Products CRUD, Orders view/cancel, Payments view/refund | 🔵 | ✅ |
+| **Backend** | Admin APIs — `orders(first,offset,status)` + `orderStats` (GraphQL), `ListPayments` REST (payment) | 🔴 | ✅ |
 | **Backend** | Replace order-service `StubPaymentClient` with a real gRPC `Charge` → payment-service `:50051` | 🔴 | ⬜ |
 | **Backend** | Testcontainers unit/integration tests for product + order services (≥80% coverage) | 🔴 | ⬜ |
 | **Edge** | Kong API Gateway — routes for product/order (+ payment REST), JWT plugin, rate limiting | 🟡 | ⬜ |
@@ -269,7 +331,6 @@ protocol-specific best practices.
 | **Observability** | Phase 6 — Jaeger tracing, Prometheus/Grafana, structured logs with correlation ID | 🟡 | ⬜ |
 | **AI** | MCP server tools over existing APIs (Phase 7) + AI layer (Phase 8) | 🟡 | ⬜ |
 | **CI** | CI/CD, load tests, security pass (Phase 9) | 🟡 | ⬜ |
-| **Frontend** | Admin dashboard — product management, order view, refunds | 🔵 | ⬜ |
 | **Perf** | Redis read-through cache for product-service | 🔵 | ⬜ |
 
 ---

@@ -78,6 +78,18 @@ func (h *PaymentHandler) GetPayment(ctx context.Context, req *paymentv1.GetPayme
 	return &paymentv1.GetPaymentResponse{Payment: toPaymentProto(p)}, nil
 }
 
+func (h *PaymentHandler) ListPayments(ctx context.Context, req *paymentv1.ListPaymentsRequest) (*paymentv1.ListPaymentsResponse, error) {
+	payments, total, err := h.svc.ListPayments(ctx, int(req.GetPage()), int(req.GetPageSize()), req.GetStatus())
+	if err != nil {
+		return nil, toGRPCError(err)
+	}
+	out := make([]*paymentv1.Payment, 0, len(payments))
+	for i := range payments {
+		out = append(out, toPaymentProto(&payments[i]))
+	}
+	return &paymentv1.ListPaymentsResponse{Payments: out, TotalCount: total}, nil
+}
+
 func toGRPCError(err error) error {
 	switch {
 	case errors.Is(err, service.ErrPaymentNotFound):

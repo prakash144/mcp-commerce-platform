@@ -8,6 +8,7 @@ import com.commerce.order.dto.OrderItemInput;
 import com.commerce.order.dto.OrderItemOutput;
 import com.commerce.order.dto.OrderOutput;
 import com.commerce.order.dto.OrderPageOutput;
+import com.commerce.order.dto.OrderStatsOutput;
 import com.commerce.order.entity.Order;
 import com.commerce.order.entity.OrderItem;
 import com.commerce.order.entity.OrderStatus;
@@ -20,6 +21,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -115,6 +117,28 @@ public class OrderService {
                 .totalCount(page.getTotalElements())
                 .offset(offset)
                 .limit(limit)
+                .build();
+    }
+
+    @Transactional(readOnly = true)
+    public OrderPageOutput getOrders(OrderStatus status, int offset, int limit) {
+        Pageable pageable = PageRequest.of(offset, limit, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<Order> page = (status == null)
+                ? orderRepository.findAll(pageable)
+                : orderRepository.findByStatus(status, pageable);
+        return OrderPageOutput.builder()
+                .orders(page.getContent().stream().map(mapper::toOutput).toList())
+                .totalCount(page.getTotalElements())
+                .offset(offset)
+                .limit(limit)
+                .build();
+    }
+
+    @Transactional(readOnly = true)
+    public OrderStatsOutput getOrderStats() {
+        return OrderStatsOutput.builder()
+                .totalOrders(orderRepository.countOrders())
+                .revenue(orderRepository.sumTotalByStatus(OrderStatus.CONFIRMED))
                 .build();
     }
 

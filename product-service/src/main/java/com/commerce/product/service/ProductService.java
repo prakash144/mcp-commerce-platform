@@ -62,6 +62,7 @@ public class ProductService {
         existing.setSku(request.getSku());
         existing.setStock(request.getStock());
         existing.setDescription(request.getDescription());
+        existing.setImageUrl(request.getImageUrl());
         return mapper.toResponse(repository.save(existing));
     }
 

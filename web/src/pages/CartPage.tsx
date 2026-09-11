@@ -94,10 +94,10 @@ export function CartPage() {
               <ShieldCheck className="h-3.5 w-3.5" /> Secure checkout
             </span>
             <span className="flex items-center gap-1.5">
-              <Truck className="h-3.5 w-3.5" /> Free shipping over $50
+              <Truck className="h-3.5 w-3.5" /> Free shipping across India
             </span>
             <span className="flex items-center gap-1.5">
-              <RotateCcw className="h-3.5 w-3.5" /> 30-day returns
+              <RotateCcw className="h-3.5 w-3.5" /> 7-day returns
             </span>
           </div>
         </div>

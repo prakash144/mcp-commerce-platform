@@ -35,6 +35,7 @@ type PaymentService interface {
 	Void(ctx context.Context, paymentID, reason string) (*model.Payment, error)
 	Refund(ctx context.Context, paymentID, idempotencyKey string, amountMinor int64, reason string) (*model.Payment, *model.Refund, error)
 	GetByID(ctx context.Context, id string) (*model.Payment, error)
+	ListPayments(ctx context.Context, page int, pageSize int, status string) ([]model.Payment, int64, error)
 }
 
 type paymentService struct {
@@ -201,6 +202,18 @@ func (s *paymentService) GetByID(ctx context.Context, id string) (*model.Payment
 		return nil, mapErr(err)
 	}
 	return p, nil
+}
+
+func (s *paymentService) ListPayments(ctx context.Context, page int, pageSize int, status string) ([]model.Payment, int64, error) {
+	if page < 0 {
+		page = 0
+	}
+	if pageSize <= 0 || pageSize > 100 {
+		pageSize = 20
+	}
+	status = strings.TrimSpace(status)
+	status = strings.TrimPrefix(status, "PAYMENT_STATUS_")
+	return s.repo.ListPayments(page, pageSize, status)
 }
 
 func mapErr(err error) error {

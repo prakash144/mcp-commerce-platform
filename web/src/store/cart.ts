@@ -48,6 +48,6 @@ export const useCart = create<CartState>()(
       total: () =>
         get().items.reduce((sum, i) => sum + i.product.price * i.quantity, 0),
     }),
-    { name: 'lumen-cart' },
+    { name: 'apnakart-cart' },
   ),
 )

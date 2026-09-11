@@ -13,6 +13,9 @@ public class ProductRequest {
 
     private String description;
 
+    @Size(max = 1000)
+    private String imageUrl;
+
     @NotNull
     @DecimalMin("0.01")
     private BigDecimal price;

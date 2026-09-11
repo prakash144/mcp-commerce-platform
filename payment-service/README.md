@@ -25,7 +25,7 @@ Three key ideas to understand about payments before touching the code:
    endpoints are generated from the same `.proto`, so the contract can't drift.
 
 2. **Money is an integer, never a float.** `$49.99` is stored as `amountMinor: 4999`
-   + `currency: "USD"`. Floating-point money silently corrupts totals; this
+   + `currency: "INR"`. Floating-point money silently corrupts totals; this
    convention (minor units + ISO 4217) is the industry standard.
 
 3. **Money movement must be idempotent.** If `order-service` retries a `Charge`
@@ -215,7 +215,7 @@ Raw spec for other tools: `http://localhost:8090/swagger.json`.
 # Charge
 curl -X POST http://localhost:8090/v1/payments \
   -H 'Content-Type: application/json' \
-  -d '{"idempotencyKey":"ord-100","orderId":"3f460937-38f1-4f4b-9f5e-6d5c1f3a2b01","customerId":"a2d5b3f4-9c8e-4b6d-a123-000000000001","amountMinor":4999,"currency":"USD","method":"PAYMENT_METHOD_CARD"}'
+  -d '{"idempotencyKey":"ord-100","orderId":"3f460937-38f1-4f4b-9f5e-6d5c1f3a2b01","customerId":"a2d5b3f4-9c8e-4b6d-a123-000000000001","amountMinor":4999,"currency":"INR","method":"PAYMENT_METHOD_CARD"}'
 
 # Read it back
 curl http://localhost:8090/v1/payments/<id>
@@ -248,7 +248,7 @@ grpcurl -plaintext localhost:50051 list
 **Charge (authorize + capture):**
 ```bash
 grpcurl -plaintext \
-  -d '{"idempotencyKey":"ord-100","orderId":"3f460937-38f1-4f4b-9f5e-6d5c1f3a2b01","customerId":"a2d5b3f4-9c8e-4b6d-a123-000000000001","amountMinor":4999,"currency":"USD","method":"PAYMENT_METHOD_CARD"}' \
+  -d '{"idempotencyKey":"ord-100","orderId":"3f460937-38f1-4f4b-9f5e-6d5c1f3a2b01","customerId":"a2d5b3f4-9c8e-4b6d-a123-000000000001","amountMinor":4999,"currency":"INR","method":"PAYMENT_METHOD_CARD"}' \
   localhost:50051 payment.v1.PaymentService/Charge
 ```
 
@@ -269,7 +269,7 @@ grpcurl -plaintext -d '{"paymentId":"<paymentId>","idempotencyKey":"ref-100","am
 **Capture / Void** require an `AUTHORIZED` payment. `Charge` goes straight to `CAPTURED`, so seed one in the DB to exercise these:
 ```sql
 INSERT INTO payments (id, order_id, customer_id, amount_minor, currency, status, method, idempotency_key, created_at, updated_at)
-VALUES ('aaaaaaaa-0000-0000-0000-000000000001', '3f460937-38f1-4f4b-9f5e-6d5c1f3a2b01', 'a2d5b3f4-9c8e-4b6d-a123-000000000001', 20000, 'USD', 'AUTHORIZED', 'CARD', 'seed-1', NOW(), NOW());
+VALUES ('aaaaaaaa-0000-0000-0000-000000000001', '3f460937-38f1-4f4b-9f5e-6d5c1f3a2b01', 'a2d5b3f4-9c8e-4b6d-a123-000000000001', 20000, 'INR', 'AUTHORIZED', 'CARD', 'seed-1', NOW(), NOW());
 ```
 ```bash
 grpcurl -plaintext -d '{"paymentId":"aaaaaaaa-0000-0000-0000-000000000001","amountMinor":20000}' \

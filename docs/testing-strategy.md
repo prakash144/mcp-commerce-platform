@@ -31,6 +31,14 @@ Last updated: 2026-09-11
 - **Structure:** ARIA snapshot of the home page (banner, nav with live cart count,
   headings, product-card names). The ARIA tree doubles as a readable dump for
   human/agent review.
+- **Admin (smoke, pending):** a second spec asserting `/admin` KPIs render and the
+  Products/Orders/Payments tables load with live data (no mutations).
+
+### Backend unit tests
+- `payment-service`: `go test ./...` — idempotency, state machine, validation, and
+  the new `ListPayments` filter/pagination (service level with a fake repo).
+- `order-service`: `mvn test` — `OrderServiceTest` covers `getOrders` (all vs by
+  status/pagination) and `getOrderStats` aggregation with Mockito.
 
 ### Manual (human judgment — do NOT automate these)
 - Motion/animation feel, spacing polish, brand consistency.
@@ -42,11 +50,15 @@ Last updated: 2026-09-11
 ## 4. How to run
 
 ```bash
-# require: postgres + product-service (:8081) + order-service (:8082) running
+# require: postgres + product-service (:8081) + order-service (:8082) + payment-service (:8090) running
 cd web
 npx playwright test                # journey + structure + visual diff
 npx playwright test --update-snapshots   # regenerate visual baselines (intentional change)
 npx playwright show-report         # HTML report incl. traces on failure
+
+# backend unit tests (each in its directory)
+cd ../payment-service && go test ./...
+cd ../order-service && mvn test
 ```
 
 Verification loop that worked in practice:

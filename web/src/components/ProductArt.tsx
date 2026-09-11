@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { Product } from '../api/types'
 
 const PALETTES = [
@@ -20,15 +21,29 @@ function hash(str: string): number {
 }
 
 export function ProductArt({ product, className }: { product: Product; className?: string }) {
+  const [failed, setFailed] = useState(false)
   const palette = PALETTES[hash(product.id) % PALETTES.length]
   const initials = product.name
     .split(' ').slice(0, 2).map((w) => w[0]?.toUpperCase()).join('')
+
   return (
     <div
       aria-hidden
-      className={`bg-gradient-to-br ${palette} flex items-center justify-center ${className ?? ''}`}
+      className={`bg-gradient-to-br ${palette} relative flex items-center justify-center overflow-hidden ${className ?? ''}`}
     >
-      <span className="text-4xl font-semibold text-white/90 tracking-wider">{initials}</span>
+      {product.imageUrl && !failed ? (
+        <img
+          src={product.imageUrl}
+          alt={product.name}
+          loading="lazy"
+          onError={() => setFailed(true)}
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      ) : (
+        <span className="text-4xl font-semibold tracking-wider text-white/90">
+          {initials}
+        </span>
+      )}
     </div>
   )
 }

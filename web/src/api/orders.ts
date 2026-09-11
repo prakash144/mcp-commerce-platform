@@ -58,7 +58,7 @@ export function useCreateOrder() {
             }
           }
         }`,
-        { input },
+        { input: { currency: 'INR', ...input } },
       ).then((d) => d.createOrder),
   })
 }

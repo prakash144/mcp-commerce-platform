@@ -72,6 +72,24 @@ func (f *fakeRepo) TotalRefundedAmount(paymentID string) (int64, error) {
 	return total, nil
 }
 
+func (f *fakeRepo) ListPayments(page int, pageSize int, status string) ([]model.Payment, int64, error) {
+	var filtered []model.Payment
+	for _, p := range f.payments {
+		if status == "" || string(p.Status) == status {
+			filtered = append(filtered, *p)
+		}
+	}
+	start := page * pageSize
+	if start > len(filtered) {
+		start = len(filtered)
+	}
+	end := start + pageSize
+	if end > len(filtered) {
+		end = len(filtered)
+	}
+	return filtered[start:end], int64(len(filtered)), nil
+}
+
 func seedPayment(repo *fakeRepo, id string, status model.PaymentStatus, amount int64) *model.Payment {
 	p := &model.Payment{
 		ID:          id,
@@ -329,6 +347,73 @@ func TestRefundReplayReturnsSameRefund(t *testing.T) {
 	}
 	if repo.payments["11111111-1111-1111-1111-111111111111"].Status != model.PaymentStatusPartiallyRefunded {
 		t.Errorf("status = %s, want PARTIALLY_REFUNDED", repo.payments["11111111-1111-1111-1111-111111111111"].Status)
+	}
+}
+
+func TestListPaymentsOverAllStatuses(t *testing.T) {
+	repo := newFakeRepo()
+	seedPayment(repo, "11111111-1111-1111-1111-111111111111", model.PaymentStatusCaptured, 10000)
+	seedPayment(repo, "22222222-2222-2222-2222-222222222222", model.PaymentStatusRefunded, 5000)
+	seedPayment(repo, "33333333-3333-3333-3333-333333333333", model.PaymentStatusCaptured, 2000)
+
+	svc := service.NewPaymentService(repo)
+	payments, total, err := svc.ListPayments(context.Background(), 0, 20, "")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if total != 3 {
+		t.Errorf("total = %d, want 3", total)
+	}
+	if len(payments) != 3 {
+		t.Errorf("got %d payments, want 3", len(payments))
+	}
+}
+
+func TestListPaymentsFilterAndPaginate(t *testing.T) {
+	repo := newFakeRepo()
+	seedPayment(repo, "11111111-1111-1111-1111-111111111111", model.PaymentStatusCaptured, 10000)
+	seedPayment(repo, "22222222-2222-2222-2222-222222222222", model.PaymentStatusRefunded, 5000)
+	seedPayment(repo, "33333333-3333-3333-3333-333333333333", model.PaymentStatusCaptured, 2000)
+
+	svc := service.NewPaymentService(repo)
+
+	payments, total, err := svc.ListPayments(context.Background(), 0, 1, "PAYMENT_STATUS_CAPTURED")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if total != 2 {
+		t.Errorf("total = %d, want 2", total)
+	}
+	if len(payments) != 1 {
+		t.Errorf("got %d payments on page 1, want 1", len(payments))
+	}
+	if string(payments[0].Status) != "CAPTURED" {
+		t.Errorf("status = %s, want CAPTURED", payments[0].Status)
+	}
+
+	payments, _, err = svc.ListPayments(context.Background(), 1, 1, "PAYMENT_STATUS_CAPTURED")
+	if err != nil {
+		t.Fatalf("list page 2: %v", err)
+	}
+	if len(payments) != 1 {
+		t.Errorf("got %d payments on page 2, want 1", len(payments))
+	}
+}
+
+func TestListPaymentsClampsPagination(t *testing.T) {
+	repo := newFakeRepo()
+	seedPayment(repo, "11111111-1111-1111-1111-111111111111", model.PaymentStatusCaptured, 10000)
+	svc := service.NewPaymentService(repo)
+
+	payments, total, err := svc.ListPayments(context.Background(), -1, 0, "")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if total != 1 {
+		t.Errorf("total = %d, want 1", total)
+	}
+	if len(payments) != 1 {
+		t.Errorf("got %d payments, want 1 (clamped)", len(payments))
 	}
 }
 
