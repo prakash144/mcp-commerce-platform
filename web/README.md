@@ -19,6 +19,15 @@ and an MCP server can expose the same APIs to AI agents.
 
 ## Run & test
 
+**Fast path — run the whole stack (Postgres + 3 services + this app):**
+
+```bash
+./scripts/run-demo.sh     # from the repo root; logs in ./logs/
+# then open http://localhost:5173
+```
+
+**Manual (this app only, services already running):**
+
 ```bash
 # 1. minimal infra (Postgres only, enough for the storefront)
 docker compose -f docker/docker-compose.yml up -d postgres
@@ -26,6 +35,7 @@ docker compose -f docker/docker-compose.yml up -d postgres
 # 2. services (separate terminals)
 cd ../product-service && ./mvnw spring-boot:run        # :8081
 cd ../order-service   && mvn spring-boot:run -q        # :8082
+cd ../payment-service && go run ./cmd/server           # :50051/:8090
 
 # 3. this app
 npm install
@@ -38,6 +48,8 @@ npx playwright test --update-snapshots   # re-baseline after intentional UI chan
 
 Vite dev-proxies `/api` → `:8081` and `/graphql` → `:8082`. The full journey with
 services live: browse → add to cart → checkout → order **CONFIRMED**.
+> Note: `createOrder` returns an `Order!` directly (no `{ order }` wrapper) and
+> `customerId` must be a UUID.
 
 ## Layout
 

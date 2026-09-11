@@ -153,78 +153,99 @@ flowchart LR
 
 ## Getting Started
 
-### 1. Infrastructure via Docker
+**What you'll run and why** — Docker provides just the infrastructure (Postgres);
+the three services and the storefront run on your machine so you can watch them
+separately. Every service auto-creates + migrates its own database on first boot
+(`productdb`, `orderdb`, `paymentdb`) and product-service seeds sample products.
 
-The Docker Compose file runs **infrastructure** (Postgres, Redis, Kafka, Keycloak,
-Kong). The three business services and the storefront run locally on your machine.
+### Option A — one command (recommended)
 
-**Minimum for the storefront demo** (used by the E2E tests — Postgres only):
+```bash
+./scripts/run-demo.sh
+```
+
+The script checks prerequisites, starts Postgres (compose), then starts the three
+services + the storefront (if a port is already in use it reuses it). Full logs in
+`./logs/*.log`. When it finishes, open **http://localhost:5173**.
+
+Prerequisites: Docker, Java 21, Maven, Go 1.2x, Node 20+.
+
+### Option B — step by step (to understand the moving parts)
+
+**Step 1 — infrastructure.** Postgres is enough for the demo; the rest (Redis,
+Kafka, Keycloak, Kong) is for later phases:
 
 ```bash
 docker compose -f docker/docker-compose.yml up -d postgres
+# optional — full infra: docker compose -f docker/docker-compose.yml up -d
 ```
 
-**Full infra** (also brings up Redis, Kafka + schema registry, Keycloak, Kong):
-
-```bash
-docker compose -f docker/docker-compose.yml up -d
-```
-
-> Kong ships with an empty `kong-config.yml` — routes are enabled in the
-> "API Gateway" todo. Keycloak boots with `admin/admin` but no realm is configured yet.
-
-### 2. Run the services (each in its own terminal)
+**Step 2 — the three services** (one terminal each):
 
 | Service | Command | Ports |
 |---|---|---|
 | product-service | `cd product-service && ./mvnw spring-boot:run` | REST `8081` |
 | order-service | `cd order-service && mvn spring-boot:run -q` | GraphQL `8082` (GraphiQL on `/graphiql`) |
-| payment-service | see [`payment-service/README.md`](./payment-service/README.md) | gRPC `50051`, REST+Swagger `8090` |
+| payment-service | `cd payment-service && go run ./cmd/server` | gRPC `50051`, REST+Swagger `8090` |
 
-Databases are created/auto-migrated by each service on boot
-(`productdb`, `orderdb`, `paymentdb`); sample products are seeded on
-product-service startup.
+> order-service has **no Maven wrapper** — use system `mvn`.
 
-### 3. Run + test the storefront
+**Step 3 — the storefront**:
 
 ```bash
 cd web
-npm install
-npm run dev        # http://localhost:5173
+npm install      # first time only
+npm run dev      # http://localhost:5173
 ```
 
 Vite dev-proxies `/api` → `:8081` and `/graphql` → `:8082` (Kong replaces this in
-production). To exercise the full loop you need Postgres + product-service +
-order-service running.
+production). Click through: browse → add to cart → checkout → order **CONFIRMED**.
 
-**E2E tests** (journey + accessibility + visual regression):
-
-```bash
-cd web
-npx playwright test                 # run all
-npx playwright test --update-snapshots   # re-baseline screenshots after intentional UI changes
-npx playwright show-report          # open the HTML report
-```
-
-### 4. Smoke-check every layer
+**Step 4 — verify every layer** (run with the stack up):
 
 ```bash
-# Product catalog
+# Product REST
 curl "http://localhost:8081/api/v1/products?page=0&size=5"
 
-# Order GraphQL — valid mutation returns a CONFIRMED order
+# Order GraphQL — createOrder returns an Order! directly; customerId is a UUID
 curl -X POST http://localhost:8082/graphql -H 'Content-Type: application/json' -d '{
-  "query": "mutation($qty:Int!){createOrder(input:{customerId:\"test-customer\",items:[{productId:\"11111111-1111-1111-1111-111111111111\",quantity:$qty}]}){order{id status totalAmount}}}",
-  "variables": { "qty": 1 }
+  "query": "mutation($id:ID!,$qty:Int!){createOrder(input:{customerId:\"11111111-1111-1111-1111-111111111111\",items:[{productId:$id,quantity:$qty}]}){id status totalAmount currency}}",
+  "variables": { "id": "11111111-1111-1111-1111-111111111111", "qty": 1 }
 }'
 
-# Payment service (gRPC): health
+# Payment gRPC health + REST charge (customerId must be a UUID)
 grpcurl -plaintext localhost:50051 grpc.health.v1.Health/Check
-# Payment REST + Swagger UI: http://localhost:8090/docs
+curl -X POST http://localhost:8090/v1/payments -H 'Content-Type: application/json' -d \
+  '{"idempotencyKey":"smoke-001","orderId":"11111111-1111-1111-1111-111111111111","customerId":"11111111-1111-1111-1111-111111111111","amountMinor":2999,"currency":"USD","method":"PAYMENT_METHOD_CARD"}'
+# Swagger UI: http://localhost:8090/docs
 ```
 
-> ⚠️ Known gap: order-service currently pays through a **stub** that always
-> succeeds. The real gRPC `Charge` → payment-service is the next 🔴 todo.
+### Testing
+
+```bash
+# Frontend E2E (journey + accessibility + visual regression) — needs services up
+cd web
+npx playwright test                       # run all
+npx playwright test --update-snapshots    # re-baseline screenshots after intentional UI changes
+npx playwright show-report                # open the HTML report
+
+# Service unit tests (each in its directory)
+cd payment-service && go test ./...       # 78% svc coverage
+cd product-service && ./mvnw test
+cd order-service && mvn test
+```
+
+### Troubleshooting & gotchas
+
+- **`GET /graphql` → 405** is normal — GraphQL is POST-only.
+- **`customerId` must be a UUID** in order-service and payment-service (Postgres
+  `uuid` columns); arbitrary strings fail with `SQLSTATE 22P02`.
+- **`createOrder` returns `Order!` directly** — there is no `{ order { ... } }` wrapper.
+- **🔥 Order payment is still a stub** (always succeeds, no real Charge yet) — the
+  gRPC `Charge` integration is the top 🔴 todo. Until then `payment-service` is
+  exercised independently (curl/grcpcurl/Swagger above).
+- Services bind `localhost` only; if a port is taken the script reuses the running
+  process rather than starting a duplicate.
 
 Per-service READMEs: [product-service](./product-service/README.md) ·
 [order-service](./order-service/README.md) · [payment-service](./payment-service/README.md).
