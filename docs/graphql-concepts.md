@@ -33,7 +33,7 @@ type Order {            # an object type
 
 input CreateOrderInput { # input = argument bag (like a DTO for queries)
   items: [OrderItemInput!]!
-  currency: String = "USD"  # schema-side default
+  currency: String = "INR"  # schema-side default
 }
 ```
 
