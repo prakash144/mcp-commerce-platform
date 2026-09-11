@@ -129,28 +129,37 @@ for port in 8081 8082 8090 5173; do
 done
 
 box_row() { printf '│  %-66s│\n' "$1"; }
-box_gap() { printf '│%70s│\n' ''; }
-printf '╭%70s╮\n' '' | tr ' ' '─'
-box_row 'Demo is running - open the storefront:'
+box_gap() { printf '│%68s│\n' ''; }
+box_h()   { printf '├%68s┤\n' '' | tr ' ' '─'; }
+
+printf '╭%68s╮\n' '' | tr ' ' '─'
+box_row 'Demo is running - open the UI:'
 box_gap
-box_row '  Storefront     http://localhost:5173          (ApnaKart)'
-box_row '  Admin          http://localhost:5173/admin     (dashboard)'
+box_row "$(printf '  %-12s%s' 'Storefront' 'http://localhost:5173        (ApnaKart)')"
+box_row "$(printf '  %-12s%s' 'Admin'      'http://localhost:5173/admin   (dashboard)')"
 box_gap
+box_h
 box_row 'Service API tooling (per service):'
-box_row '  product  REST     Swagger   http://localhost:8081/swagger-ui.html'
-box_row '  order    GraphQL  GraphiQL  http://localhost:8082/graphiql'
-box_row '  payment  gRPC+REST Swagger  http://localhost:8090/docs'
+box_row "$(printf '%-7s %-13s %-8s %s' 'service' 'API' 'docs' '')"
+box_row "$(printf '%-7s %-13s %-8s %s' 'product' 'REST :8081'  'Swagger'  'localhost:8081/swagger-ui.html')"
+box_row "$(printf '%-7s %-13s %-8s %s' 'order'   'GraphQL :8082' 'GraphiQL' 'localhost:8082/graphiql')"
+box_row "$(printf '%-7s %-13s %-8s %s' 'payment' 'REST :8090'  'Swagger'  'localhost:8090/docs')"
+box_row '    └ (gRPC backend on :50051, same process)'
 box_gap
-box_row 'Smoke checks:'
+box_h
+box_row 'Smoke checks (services running):'
 box_row '  curl -s "http://localhost:8081/api/v1/products?page=0&size=5"'
 box_row '  curl -s "http://localhost:8090/v1/payments?page=0&page_size=5"'
 box_row '  grpcurl -plaintext localhost:50051 grpc.health.v1.Health/Check'
-box_row '  orderStats via POST /graphql -> { orderStats { totalOrders revenue } }'
+box_row '  curl -s -X POST localhost:8082/graphql \'
+box_row "  -d '{ orderStats { totalOrders revenue } }'"
 box_gap
-box_row 'E2E tests (stack running):'
+box_h
+box_row 'E2E tests (stack must be running):'
 box_row '  cd web && npx playwright test'
 box_gap
-box_row '  Stop everything together:'
-box_row '    ./scripts/run-demo.sh stop            (services + Postgres)'
-box_row '    ./scripts/run-demo.sh stop --keep-db  (Postgres stays up)'
-printf '╰%70s╯\n' '' | tr ' ' '─'
+box_h
+box_row 'Stop everything:'
+box_row "$(printf '  %-38s%s' './scripts/run-demo.sh stop' '(services + Postgres)')"
+box_row "$(printf '  %-38s%s' './scripts/run-demo.sh stop --keep-db' '(Postgres stays up)')"
+printf '╰%68s╯\n' '' | tr ' ' '─'
