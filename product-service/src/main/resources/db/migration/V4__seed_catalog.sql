@@ -1,0 +1,21 @@
+-- ApnaKart real catalog.
+-- Replaces the placeholder demo products (MM-001/KB-001/MS-001) with the
+-- production catalog: INR pricing, product photography (hotlinked CDN URLs;
+-- self-hosted in production), deterministic UUIDs so docs/smoke-tests can
+-- reference known products.
+DELETE FROM products
+ WHERE sku IN ('MM-001', 'KB-001', 'MS-001');
+
+INSERT INTO products (id, name, description, price, sku, stock, image_url, created_at, updated_at) VALUES
+('11111111-1111-1111-1111-111111111111', 'Sonic-90 Wireless Headphones',      'Over-ear Bluetooth headphones with 40mm drivers, active noise cancelling and 30-hour battery.', 2999.00,  'SN-090', 42,  'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=800&q=80', now(), now()),
+('11111111-1111-1111-1111-111111111112', 'Timepoint Classic Watch',           'Analog leather-strap wristwatch, quartz movement and scratch-resistant glass.',                     1499.00,  'TP-001', 18,  'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=800&q=80', now(), now()),
+('11111111-1111-1111-1111-111111111113', 'RunBlaze Red Sneakers',             'Breathable mesh running shoes with cushioned sole and slip-on design.',                            1199.00,  'RB-201', 65,  'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=800&q=80', now(), now()),
+('11111111-1111-1111-1111-111111111114', 'SnapMaster 24MP DSLR',              'Interchangeable-lens digital SLR with 1080p video recording and optical stabilizer.',             4999.00,  'SM-300', 7,   'https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?auto=format&fit=crop&w=800&q=80', now(), now()),
+('11111111-1111-1111-1111-111111111115', 'NovaBook 14" Ultrabook',            'Thin-and-light laptop with 14" FHD display, 16GB RAM and all-day battery life.',                  9999.00,  'NB-140', 12,  'https://images.unsplash.com/photo-1593642632823-8f785ba67e45?auto=format&fit=crop&w=800&q=80', now(), now()),
+('11111111-1111-1111-1111-111111111116', 'AeroShade Polarized Sunglasses',    'UV400 polarized aviator sunglasses with metal frame and padded case.',                            899.00,   'AS-050', 88,  'https://images.unsplash.com/photo-1572635196237-14b3f281503f?auto=format&fit=crop&w=800&q=80', now(), now()),
+('11111111-1111-1111-1111-111111111117', 'FreshFit Cotton Crew (White)',      'Crew-neck t-shirt in 100% combed cotton, preshrunk and tag-free.',                                449.00,   'FF-010', 150, 'https://images.unsplash.com/photo-1521575107034-e0fa0b594529?auto=format&fit=crop&w=800&q=80', now(), now()),
+('11111111-1111-1111-1111-111111111118', 'UrbanTrek 22L Backpack',            'Water-repellent rucksack with padded 15.6" laptop sleeve and hidden anti-theft pocket.',          1299.00,  'UT-220', 34,  'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?auto=format&fit=crop&w=800&q=80', now(), now()),
+('11111111-1111-1111-1111-111111111119', 'Bounce ANC Earbuds',                'True-wireless earbuds with active noise cancelling, wireless charging case and 24h playtime.',    1799.00,  'BN-110', 26,  'https://images.unsplash.com/photo-1583394838336-acd977736f90?auto=format&fit=crop&w=800&q=80', now(), now()),
+('11111111-1111-1111-1111-111111111120', 'EdgeCore 27" QHD Monitor',          '27-inch QHD IPS monitor, 75Hz refresh, built-in speakers and slim bezels.',                       8999.00,  'EC-270', 9,   'https://images.unsplash.com/photo-1601924994987-69e26d50dc26?auto=format&fit=crop&w=800&q=80', now(), now()),
+('11111111-1111-1111-1111-111111111121', 'PulseFit Smart Band',               'Fitness and sleep tracking smart band with heart-rate monitor and 14-day battery.',              2499.00,  'PF-300', 21,  'https://images.unsplash.com/photo-1546868871-7041f2a55e12?auto=format&fit=crop&w=800&q=80', now(), now()),
+('11111111-1111-1111-1111-111111111122', 'AeroCam 4K Drone',                  'Foldable drone with 4K stabilized camera, GPS return-to-home and 30-min flight time.',           14999.00, 'AC-400', 5,   'https://images.unsplash.com/photo-1605810230434-7631ac76ec81?auto=format&fit=crop&w=800&q=80', now(), now());

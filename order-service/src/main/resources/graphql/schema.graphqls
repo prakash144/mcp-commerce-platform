@@ -4,6 +4,13 @@ scalar DateTime
 type Query {
     order(id: ID!): Order
     ordersByCustomer(customerId: String, first: Int = 20, offset: Int = 0): OrderPage!
+    orders(first: Int = 20, offset: Int = 0, status: OrderStatus): OrderPage!
+    orderStats: OrderStats!
+}
+
+type OrderStats {
+    totalOrders: Int!
+    revenue: BigDecimal!
 }
 
 type Mutation {

@@ -5,6 +5,7 @@ export interface Product {
   price: number
   sku: string
   stock: number
+  imageUrl?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -42,4 +43,36 @@ export interface Order {
 export interface CartItem {
   product: Product
   quantity: number
+}
+
+export type PaymentStatus =
+  | 'PENDING'
+  | 'AUTHORIZED'
+  | 'CAPTURED'
+  | 'REFUNDED'
+  | 'PARTIALLY_REFUNDED'
+  | 'VOIDED'
+  | 'FAILED'
+
+export interface Payment {
+  id: string
+  orderId: string
+  customerId: string
+  amountMinor: number
+  currency: string
+  status: string
+  method: string
+  createdAt: string
+  updatedAt: string
+  failureReason?: string
+}
+
+export interface PaymentPage {
+  payments: Payment[]
+  totalCount: number
+}
+
+export interface OrderStats {
+  totalOrders: number
+  revenue: number
 }

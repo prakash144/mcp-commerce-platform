@@ -66,7 +66,7 @@ Full per-service folder layouts are in [`plan doc`](./docs/plan.md).
 ## Architecture at a Glance
 
 ```
-Web Client
+Web Client (Storefront + Admin dashboard, web/)
    |
 REST / GraphQL
    |
@@ -130,10 +130,13 @@ flowchart LR
     subgraph UI[Storefront — web/]
         H[Home] & CAT[Catalog] & PDP[Product detail] & CART[Cart] & CO[Checkout] & OS[Order status]
     end
+    subgraph ADM[Admin — web/admin]
+        D[Dashboard] & AP[Products CRUD] & AO[Orders + cancel] & PY[Payments + refund]
+    end
     subgraph API[Service APIs]
-        P[product-service<br/>REST :8081<br/>GET /products, GET /products/{id}]
-        O[order-service<br/>GraphQL :8082<br/>createOrder, order(id)]
-        PAY[payment-service<br/>gRPC :50051<br/>Charge · Refund · Capture · Void · GetPayment]
+        P[product-service<br/>REST :8081<br/>GET/POST/PUT/DELETE /products]
+        O[order-service<br/>GraphQL :8082<br/>createOrder, orders, orderStats, cancelOrder]
+        PAY[payment-service<br/>gRPC :50051 + REST :8090<br/>Charge · Refund · Capture · Void · Get · List]
     end
     H -->|useProducts| P
     CAT -->|useProducts: page + sort + q filter| P
@@ -141,6 +144,12 @@ flowchart LR
     CART -->|local-only — Zustand persist| CART
     CO -->|useCreateOrder| O
     OS -->|useOrder| O
+    D -->|useOrderStats + counts| O
+    D -->|counts| P
+    D -->|counts| PAY
+    AP -->|create / update / delete| P
+    AO -->|orders(status, page) + cancel| O
+    PY -->|GET /v1/payments + POST refund| PAY
     O -. 🔴 real gRPC Charge (TODO).-> PAY
 
     subgraph AI[Future — Phases 7-8]
@@ -198,8 +207,11 @@ npm install      # first time only
 npm run dev      # http://localhost:5173
 ```
 
-Vite dev-proxies `/api` → `:8081` and `/graphql` → `:8082` (Kong replaces this in
-production). Click through: browse → add to cart → checkout → order **CONFIRMED**.
+Vite dev-proxies `/api` → `:8081`, `/graphql` → `:8082` and `/v1` → `:8090`
+(Kong replaces this in production). Click through: browse → add to cart → checkout →
+order **CONFIRMED**. The **admin dashboard** lives at **http://localhost:5173/admin**
+(no auth yet — Keycloak comes later): Dashboard KPIs, Products CRUD, Orders
+view/filter/cancel, Payments view/filter/refund.
 
 **Step 4 — verify every layer** (run with the stack up):
 
@@ -209,14 +221,22 @@ curl "http://localhost:8081/api/v1/products?page=0&size=5"
 
 # Order GraphQL — createOrder returns an Order! directly; customerId is a UUID
 curl -X POST http://localhost:8082/graphql -H 'Content-Type: application/json' -d '{
-  "query": "mutation($id:ID!,$qty:Int!){createOrder(input:{customerId:\"11111111-1111-1111-1111-111111111111\",items:[{productId:$id,quantity:$qty}]}){id status totalAmount currency}}",
-  "variables": { "id": "11111111-1111-1111-1111-111111111111", "qty": 1 }
+  "query": "mutation($id:ID!,$qty:Int!){createOrder(input:{customerId:\"11111111-1111-1111-1111-111111111111\",currency:\"INR\",items:[{productId:$id,quantity:$qty}]}){id status totalAmount currency}}",
+  "variables": { "id": "11111111-1111-1111-1111-111111111112", "qty": 1 }
+}'
+
+# Order GraphQL — list all orders + store stats (drives the admin dashboard)
+curl -s -X POST http://localhost:8082/graphql -H 'Content-Type: application/json' -d '{
+  "query": "{ orderStats { totalOrders revenue } orders(first: 5, status: CONFIRMED) { totalCount orders { id status totalAmount } } }"
 }'
 
 # Payment gRPC health + REST charge (customerId must be a UUID)
 grpcurl -plaintext localhost:50051 grpc.health.v1.Health/Check
 curl -X POST http://localhost:8090/v1/payments -H 'Content-Type: application/json' -d \
-  '{"idempotencyKey":"smoke-001","orderId":"11111111-1111-1111-1111-111111111111","customerId":"11111111-1111-1111-1111-111111111111","amountMinor":2999,"currency":"USD","method":"PAYMENT_METHOD_CARD"}'
+  '{"idempotencyKey":"smoke-001","orderId":"11111111-1111-1111-1111-111111111111","customerId":"11111111-1111-1111-1111-111111111111","amountMinor":2999,"currency":"INR","method":"PAYMENT_METHOD_CARD"}'
+
+# Payment REST — list + filter (drives the admin payments page)
+curl -s "http://localhost:8090/v1/payments?page=0&page_size=5&status=PAYMENT_STATUS_CAPTURED"
 ```
 
 **Interactive API tooling per service** (each service is documented by the tool
@@ -291,6 +311,8 @@ protocol-specific best practices.
 | Area | Task | Priority | Status |
 |---|---|---|---|
 | **Frontend** | Build React + Vite storefront (`web/`) — catalog, cart, checkout, order status | 🔴 | ✅ |
+| **Frontend** | Admin dashboard (`/admin`) — Dashboard KPIs, Products CRUD, Orders view/cancel, Payments view/refund | 🔵 | ✅ |
+| **Backend** | Admin APIs — `orders(first,offset,status)` + `orderStats` (GraphQL), `ListPayments` REST (payment) | 🔴 | ✅ |
 | **Backend** | Replace order-service `StubPaymentClient` with a real gRPC `Charge` → payment-service `:50051` | 🔴 | ⬜ |
 | **Backend** | Testcontainers unit/integration tests for product + order services (≥80% coverage) | 🔴 | ⬜ |
 | **Edge** | Kong API Gateway — routes for product/order (+ payment REST), JWT plugin, rate limiting | 🟡 | ⬜ |
@@ -302,7 +324,6 @@ protocol-specific best practices.
 | **Observability** | Phase 6 — Jaeger tracing, Prometheus/Grafana, structured logs with correlation ID | 🟡 | ⬜ |
 | **AI** | MCP server tools over existing APIs (Phase 7) + AI layer (Phase 8) | 🟡 | ⬜ |
 | **CI** | CI/CD, load tests, security pass (Phase 9) | 🟡 | ⬜ |
-| **Frontend** | Admin dashboard — product management, order view, refunds | 🔵 | ⬜ |
 | **Perf** | Redis read-through cache for product-service | 🔵 | ⬜ |
 
 ---

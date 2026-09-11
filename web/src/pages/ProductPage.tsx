@@ -66,7 +66,7 @@ export function ProductPage() {
         </Link>
         <ChevronRight className="h-3.5 w-3.5 text-zinc-300" />
         <Link to="/catalog" className="hover:text-zinc-900">
-          The Collection
+          Shop
         </Link>
         <ChevronRight className="h-3.5 w-3.5 text-zinc-300" />
         <span className="truncate text-zinc-900">{product.name}</span>
@@ -138,10 +138,10 @@ export function ProductPage() {
           </div>
           <div className="mt-8 grid gap-3 border-t border-zinc-100 pt-6 text-sm text-zinc-600 sm:grid-cols-3">
             <span className="flex items-center gap-2">
-              <Truck className="h-4 w-4 text-teal-700" /> Free shipping over $50
+              <Truck className="h-4 w-4 text-teal-700" /> Free shipping across India
             </span>
             <span className="flex items-center gap-2">
-              <RotateCcw className="h-4 w-4 text-teal-700" /> 30-day returns
+              <RotateCcw className="h-4 w-4 text-teal-700" /> 7-day returns
             </span>
             <span className="flex items-center gap-2">
               <ShieldCheck className="h-4 w-4 text-teal-700" /> Secure checkout

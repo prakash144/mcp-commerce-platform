@@ -133,7 +133,8 @@ box_gap() { printf '│%70s│\n' ''; }
 printf '╭%70s╮\n' '' | tr ' ' '─'
 box_row 'Demo is running - open the storefront:'
 box_gap
-box_row '  Frontend      http://localhost:5173         (Lumen & Co.)'
+box_row '  Storefront     http://localhost:5173          (ApnaKart)'
+box_row '  Admin          http://localhost:5173/admin     (dashboard)'
 box_gap
 box_row 'Service API tooling (per service):'
 box_row '  product  REST     Swagger   http://localhost:8081/swagger-ui.html'
@@ -142,7 +143,9 @@ box_row '  payment  gRPC+REST Swagger  http://localhost:8090/docs'
 box_gap
 box_row 'Smoke checks:'
 box_row '  curl -s "http://localhost:8081/api/v1/products?page=0&size=5"'
+box_row '  curl -s "http://localhost:8090/v1/payments?page=0&page_size=5"'
 box_row '  grpcurl -plaintext localhost:50051 grpc.health.v1.Health/Check'
+box_row '  orderStats via POST /graphql -> { orderStats { totalOrders revenue } }'
 box_gap
 box_row 'E2E tests (stack running):'
 box_row '  cd web && npx playwright test'

@@ -3,6 +3,8 @@ package com.commerce.order.resolver;
 import com.commerce.order.dto.OrderItemOutput;
 import com.commerce.order.dto.OrderOutput;
 import com.commerce.order.dto.OrderPageOutput;
+import com.commerce.order.dto.OrderStatsOutput;
+import com.commerce.order.entity.OrderStatus;
 import com.commerce.order.service.OrderService;
 import org.dataloader.DataLoader;
 import org.springframework.graphql.data.method.annotation.Argument;
@@ -33,6 +35,18 @@ public class OrderQueryResolver {
                                             @Argument int first,
                                             @Argument int offset) {
         return orderService.getOrdersByCustomer(customerId, offset, first);
+    }
+
+    @QueryMapping
+    public OrderPageOutput orders(@Argument int first,
+                                  @Argument int offset,
+                                  @Argument OrderStatus status) {
+        return orderService.getOrders(status, offset, first);
+    }
+
+    @QueryMapping
+    public OrderStatsOutput orderStats() {
+        return orderService.getOrderStats();
     }
 
     @SchemaMapping(typeName = "Order", field = "items")

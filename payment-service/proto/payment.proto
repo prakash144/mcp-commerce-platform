@@ -98,6 +98,17 @@ message GetPaymentResponse {
   Payment payment = 1;
 }
 
+message ListPaymentsRequest {
+  int64 page = 1;
+  int64 page_size = 2;
+  string status = 3;
+}
+
+message ListPaymentsResponse {
+  repeated Payment payments = 1;
+  int64 total_count = 2;
+}
+
 service PaymentService {
   rpc Charge(ChargeRequest) returns (ChargeResponse) {
     option (google.api.http) = {
@@ -126,6 +137,11 @@ service PaymentService {
   rpc GetPayment(GetPaymentRequest) returns (GetPaymentResponse) {
     option (google.api.http) = {
       get: "/v1/payments/{id}"
+    };
+  }
+  rpc ListPayments(ListPaymentsRequest) returns (ListPaymentsResponse) {
+    option (google.api.http) = {
+      get: "/v1/payments"
     };
   }
 }

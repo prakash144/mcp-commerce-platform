@@ -17,6 +17,7 @@ type PaymentRepository interface {
 	CreateRefund(r *model.Refund) error
 	TotalRefundedAmount(paymentID string) (int64, error)
 	FindRefundByIdempotencyKey(key string) (*model.Refund, error)
+	ListPayments(page int, pageSize int, status string) ([]model.Payment, int64, error)
 }
 
 type paymentRepository struct {
@@ -85,4 +86,18 @@ func (r *paymentRepository) FindRefundByIdempotencyKey(key string) (*model.Refun
 		return nil, err
 	}
 	return &rf, nil
+}
+
+func (r *paymentRepository) ListPayments(page int, pageSize int, status string) ([]model.Payment, int64, error) {
+	var total int64
+	query := r.db.Model(&model.Payment{})
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var payments []model.Payment
+	err := query.Order("created_at DESC").Offset(page * pageSize).Limit(pageSize).Find(&payments).Error
+	return payments, total, err
 }
