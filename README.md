@@ -123,7 +123,7 @@ sequenceDiagram
 
 ## UI ↔ API Integration Map
 
-Which page calls which API today, and where the AI/MCP layer will plug in later:
+Which page calls which API today (storefront + admin), and where the AI/MCP layer plugs in later:
 
 ```mermaid
 flowchart LR
@@ -134,22 +134,21 @@ flowchart LR
         D[Dashboard] & AP[Products CRUD] & AO[Orders + cancel] & PY[Payments + refund]
     end
     subgraph API[Service APIs]
-        P[product-service<br/>REST :8081<br/>GET/POST/PUT/DELETE /products]
-        O[order-service<br/>GraphQL :8082<br/>createOrder, orders, orderStats, cancelOrder]
-        PAY[payment-service<br/>gRPC :50051 + REST :8090<br/>Charge · Refund · Capture · Void · Get · List]
+        P[product-service<br/>REST :8081<br/>GET /products · POST /products · PUT/DELETE /products/:id]
+        O[order-service<br/>GraphQL :8082<br/>createOrder · orders · orderStats · cancelOrder]
+        PAY[payment-service<br/>gRPC :50051 + REST gateway :8090<br/>Charge · Refund · Capture · Void · Get · List]
     end
-    H -->|useProducts| P
-    CAT -->|useProducts: page + sort + q filter| P
-    PDP -->|useProduct| P
-    CART -->|local-only — Zustand persist| CART
-    CO -->|useCreateOrder| O
-    OS -->|useOrder| O
-    D -->|useOrderStats + counts| O
-    D -->|counts| P
-    D -->|counts| PAY
-    AP -->|create / update / delete| P
-    AO -->|orders(status, page) + cancel| O
-    PY -->|GET /v1/payments + POST refund| PAY
+    H -->|useProducts — first 8 featured| P
+    CAT -->|useProducts — server-side page + sort| P
+    PDP -->|useProduct id| P
+    CO -->|useCreateOrder — createOrder mutation| O
+    OS -->|useOrder id| O
+    D -->|orderStats totalOrders + revenue · recent orders| O
+    D -->|products totalElements| P
+    D -->|payments totalCount| PAY
+    AP -->|createProduct · updateProduct · deleteProduct| P
+    AO -->|orders status + page · cancelOrder| O
+    PY -->|GET /v1/payments · POST /v1/payments/:id/refund| PAY
     O -. 🔴 real gRPC Charge (TODO).-> PAY
 
     subgraph AI[Future — Phases 7-8]
@@ -157,6 +156,14 @@ flowchart LR
         MCP -.->|wraps existing APIs| P & O & PAY
     end
 ```
+
+Notes:
+
+- **Search `q` on Catalog** is client-side — it filters the page already loaded from `useProducts`; pagination and sort run on product-service.
+- **Cart** is local-only, persisted to `localStorage` via Zustand — no API call.
+- **Dashboard KPIs** come from three live calls: `orderStats` (orders + revenue), `products.totalElements`, and `payments.totalCount`.
+- **Refunds & admin payments** go through the payment-service REST gateway (`:8090`, same gRPC backend); Order-cancel hits order-service GraphQL.
+- **`order-service → payment-service`** still uses `StubPaymentClient` — the real gRPC `Charge` is the 🔴 TODO above.
 
 ---
 
