@@ -217,8 +217,20 @@ curl -X POST http://localhost:8082/graphql -H 'Content-Type: application/json' -
 grpcurl -plaintext localhost:50051 grpc.health.v1.Health/Check
 curl -X POST http://localhost:8090/v1/payments -H 'Content-Type: application/json' -d \
   '{"idempotencyKey":"smoke-001","orderId":"11111111-1111-1111-1111-111111111111","customerId":"11111111-1111-1111-1111-111111111111","amountMinor":2999,"currency":"USD","method":"PAYMENT_METHOD_CARD"}'
-# Swagger UI: http://localhost:8090/docs
 ```
+
+**Interactive API tooling per service** (each service is documented by the tool
+that fits its protocol):
+
+| Service | Tool | URL |
+|---|---|---|
+| product-service (REST) | Swagger UI | `http://localhost:8081/swagger-ui.html` (spec at `/api-docs`) |
+| order-service (GraphQL) | GraphiQL | `http://localhost:8082/graphiql` |
+| payment-service (gRPC + REST gateway) | Swagger UI | `http://localhost:8090/docs` |
+
+> Why no Swagger for order-service? Swagger/OpenAPI documents **REST** endpoints.
+> order-service exposes **GraphQL** (single POST `/graphql`), so its tooling is
+> GraphiQL instead. If you load `/graphiql`, window `$` toggles the schema docs.
 
 ### Testing
 

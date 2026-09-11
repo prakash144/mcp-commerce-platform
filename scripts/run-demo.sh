@@ -86,6 +86,8 @@ cat <<'EOF'
 │                                                                │
 │    http://localhost:5173   ← frontend (Lumen & Co.)            │
 │    http://localhost:8090/docs  ← payment Swagger UI            │
+│    http://localhost:8081/swagger-ui.html ← product Swagger UI  │
+│    http://localhost:8082/graphiql ← order GraphQL tooling      │
 │                                                                │
 │  Smoke checks:                                                 │
 │    curl "http://localhost:8081/api/v1/products?page=0&size=5"   │
