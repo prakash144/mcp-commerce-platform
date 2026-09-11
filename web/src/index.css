@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Base refinement for a premium storefront */
+@layer base {
+  html {
+    @apply antialiased text-zinc-900;
+  }
+  body {
+    @apply bg-white;
+  }
+}
