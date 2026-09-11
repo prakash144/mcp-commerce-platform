@@ -26,7 +26,8 @@ page code, and an MCP server can expose the same APIs to AI agents.
 **Fast path — run the whole stack (Postgres + 3 services + this app):**
 
 ```bash
-./scripts/run-demo.sh     # from the repo root; logs in ./logs/
+./scripts/run-demo.sh            # from the repo root; logs in ./logs/
+./scripts/run-demo.sh docker     # alternative: every service as its own container
 # then open http://localhost:5173   (storefront)
 #         http://localhost:5173/admin (dashboard — no auth yet)
 ```
@@ -77,7 +78,6 @@ images (Unsplash CDN) with a gradient fallback if an image fails to load.
 - [ ] Keycloak (PKCE) sign-in replacing the mock identity (also locks down `/admin`)
 - [ ] Real `Charge` in the order-service → payment-service gRPC (fixes simulated payment)
 - [ ] CI: regenerate/verify visual baselines per platform
-- [ ] Add admin smoke coverage to the E2E suite
 
 See [`docs/frontend-architecture.md`](../docs/frontend-architecture.md) and
 [`docs/testing-strategy.md`](../docs/testing-strategy.md) for details.

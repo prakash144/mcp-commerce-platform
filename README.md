@@ -1,65 +1,94 @@
 # Commerce Platform
 
 A production-style commerce platform built to learn and demonstrate modern backend
-communication protocols — REST, GraphQL, gRPC, Kafka, and MCP — by progressively
+communication protocols — **REST, GraphQL, gRPC, Kafka, and MCP** — by progressively
 evolving a real microservices system into an AI-accessible platform.
 
 > **Core idea:** the business domain (Product, Order, Payment) stays constant.
 > The protocol used to expose it (REST, GraphQL, gRPC, MCP) is the variable.
 > See [`HLD Architect`](./docs/architect.md) for the full reasoning.
 
+This README is written so a beginner can go from "what is this?" to "I'm running it and I understand the pieces" — in order. [Jump to the learning path](#docs--learning-path).
+
+---
+
+## Table of Contents
+
+1. [Quick Start (5 minutes)](#quick-start-5-minutes)
+2. [What this is](#what-this-is)
+3. [Architecture at a Glance](#architecture-at-a-glance)
+4. [How the pieces talk](#how-the-pieces-talk)
+5. [Repository Layout](#repository-layout)
+6. [Running the Project](#running-the-project)
+7. [Deployment & Containers](#deployment--containers)
+8. [Docs & Learning Path](#docs--learning-path)
+9. [Roadmap / Phases](#roadmap--phases)
+10. [Todos](#todos)
+11. [Session History](#session-history)
+12. [Learning Outcomes](#learning-outcomes)
+
+---
+
+## Quick Start (5 minutes)
+
+**What you'll run and why** — one command starts PostgreSQL plus four services, each as
+a separate process (host mode) or its own container (docker mode). Every service
+auto-creates **and migrates** its own database on first boot (`productdb`, `orderdb`,
+`paymentdb`), and product-service seeds sample products.
+
+**Prerequisites:** Docker (OrbStack/Docker Desktop), Java 21, Maven, Go 1.2x, Node 20+.
+
+```bash
+./scripts/run-demo.sh          # host processes — one log file per service in ./logs/
+./scripts/run-demo.sh docker   # one container per service — docker compose logs -f <svc>
+```
+
+When it finishes, open:
+
+| URL | What you'll see |
+|---|---|
+| **http://localhost:5173** | ApnaKart storefront — browse ₹ catalog, cart, checkout, order **CONFIRMED** |
+| **http://localhost:5173/admin** | Admin dashboard — KPIs, Products CRUD, Orders view/cancel, Payments view/refund (no auth yet) |
+
+A full smoke check runs at the end (all ports up + a sample order). Beginners:
+**try the storefront once before reading on** — the rest of the docs make a lot more
+sense after you've clicked through catalog → cart → checkout → order confirmed.
+
 ---
 
 ## What this is
 
-Three business microservices, each intentionally built with a different protocol,
-integrated via Kafka events, fully observable, and finally exposed to AI agents
-through an MCP server — without rewriting any of the existing services.
+Three business microservices, each intentionally built with a **different protocol**,
+integrated via Kafka events (planned), fully observable, and finally exposed to AI
+agents through an MCP server — **without rewriting any existing service**.
 
 | Service | Language | Protocol | Responsibility |
 |---|---|---|---|
 | `product-service` | Java 21 + Spring Boot | REST | Product catalog, search, inventory |
 | `order-service` | Java 21 + Spring GraphQL | GraphQL | Order lifecycle, customer orders |
 | `payment-service` | Go | gRPC | Charge, refund, capture, payment status |
-| `mcp-server` | Python | MCP | Exposes the above as AI tools (adapter only, no business logic) |
+| `mcp-server` | Python | MCP | Exposes the above as AI tools (adapter only, no business logic) — Phase 7 |
+| `web/` (storefront + admin) | React + Vite + TypeScript | REST / GraphQL / gRPC-via-gateway | The human front-end of the whole platform |
 
----
+> **Why different protocols?** Each service uses the protocol that best fits its job.
+> Compare them as you read each service's README — that comparison *is* the learning goal.
 
-## Tech Stack
+### Tech Stack
 
-| Layer | Technology |
-|---|---|
-| REST | Java 21 + Spring Boot |
-| GraphQL | Java 21 + Spring GraphQL |
-| gRPC | Go |
-| MCP | Python |
-| Database | PostgreSQL (one per service) |
-| Cache | Redis |
-| Messaging | Kafka |
-| API Docs | OpenAPI |
-| Containers | Docker / Docker Compose |
-| Monitoring | Prometheus + Grafana |
-| Logging | ELK / Loki |
-| Tracing | OpenTelemetry + Jaeger |
+| Layer | Technology | Status |
+|---|---|---|
+| REST | Java 21 + Spring Boot | ✅ live |
+| GraphQL | Java 21 + Spring GraphQL | ✅ live |
+| gRPC | Go | ✅ live |
+| REST gateway (gRPC → HTTP) | grpc-gateway | ✅ live on `:8090` |
+| MCP | Python | ⬜ Phase 7 |
+| Database | PostgreSQL (one per service, auto-migrated) | ✅ live |
+| Cache | Redis | ⬜ Phase 5+ |
+| Messaging | Kafka | ⬜ Phase 5 |
+| API Gateway / Auth | Kong + Keycloak | ⬜ Phase 8 |
+| Observability | Prometheus / Grafana / Jaeger / Loki | ⬜ Phase 6 |
 
----
-
-## Repository Structure
-
-```
-commerce-platform/
-├── docs/                     # ADRs, API docs, diagrams, runbooks
-├── common/                   # Shared proto contracts, event schemas, libs
-├── product-service/          # Java + Spring Boot (REST)
-├── order-service/            # Java + Spring GraphQL
-├── payment-service/          # Go (gRPC)
-├── mcp-server/                # Python (MCP)
-├── docker/                    # docker-compose files
-├── scripts/                   # setup, seed-data, migration scripts
-└── infrastructure/             # k8s manifests, monitoring configs
-```
-
-Full per-service folder layouts are in [`plan doc`](./docs/plan.md).
+*"⬜" rows are part of the target architecture; only "✅" rows run today.*
 
 ---
 
@@ -68,30 +97,32 @@ Full per-service folder layouts are in [`plan doc`](./docs/plan.md).
 ```
 Web Client (Storefront + Admin dashboard, web/)
    |
-REST / GraphQL
+ REST / GraphQL (via Vite dev proxy; Kong gateway planned)
    |
 Product Service (REST) ─┐
-Order Service (GraphQL) ─┼─> Kafka Events ─> Consumers
+Order Service (GraphQL) ─┼─> Kafka Events (planned) ─> Consumers
 Payment Service (gRPC)  ─┘        |
-                           Jaeger / Prometheus / Loki
+                            Jaeger / Prometheus / Loki (planned)
 ```
 
 AI agents reach the same platform through a Python MCP server that wraps the
-existing REST/GraphQL/gRPC APIs as tools — no duplicated business logic:
+existing REST/GraphQL/gRPC APIs as tools — **no duplicated business logic**:
 
 ```
 Claude / ChatGPT ──MCP──> mcp-server ──> Product REST / Order GraphQL / Payment gRPC
 ```
 
-Full diagrams, communication matrix, and an end-to-end request walkthrough are in
-[`HLD Architect`](./docs/architect.md).
+Full diagrams, the communication matrix, and an end-to-end request walkthrough live in
+[`docs/architect.md`](./docs/architect.md).
 
 ---
 
-## End-to-End Flow (Storefront)
+## How the pieces talk
 
-UI → REST catalog → GraphQL checkout → (stub) payment. The bold gaps below are the
-next 🔴 todos.
+### End-to-End Flow (storefront, today)
+
+UI → REST catalog → GraphQL checkout → (stub) payment. The bold gap below is the
+next 🔴 todo.
 
 ```mermaid
 sequenceDiagram
@@ -121,9 +152,10 @@ sequenceDiagram
     PAY-->>O: ChargeResponse CAPTURED (future)
 ```
 
-## UI ↔ API Integration Map
+### UI ↔ API Integration Map
 
-Which page calls which API today (storefront + admin), and where the AI/MCP layer plugs in later:
+Which page calls which API today (storefront + admin), and where the AI/MCP layer
+plugs in later:
 
 ```mermaid
 flowchart LR
@@ -159,20 +191,40 @@ flowchart LR
 
 Notes:
 
-- **Search `q` on Catalog** is client-side — it filters the page already loaded from `useProducts`; pagination and sort run on product-service.
+- **Search `q` on Catalog** is client-side today — it filters the page already loaded
+  from `useProducts`; pagination and sort run on product-service. (Server-side
+  full-text search is a 🟡 todo.)
 - **Cart** is local-only, persisted to `localStorage` via Zustand — no API call.
-- **Dashboard KPIs** come from three live calls: `orderStats` (orders + revenue), `products.totalElements`, and `payments.totalCount`.
-- **Refunds & admin payments** go through the payment-service REST gateway (`:8090`, same gRPC backend); Order-cancel hits order-service GraphQL.
-- **`order-service → payment-service`** still uses `StubPaymentClient` — the real gRPC `Charge` is the 🔴 TODO above.
+- **Dashboard KPIs** come from three live calls: `orderStats` (orders + revenue),
+  `products.totalElements`, and `payments.totalCount`.
+- **Refunds & admin payments** go through the payment-service REST gateway (`:8090`,
+  same gRPC backend); Order-cancel hits order-service GraphQL.
+- **`order-service → payment-service`** still uses `StubPaymentClient` — the real gRPC
+  `Charge` is the 🔴 todo above.
 
 ---
 
-## Getting Started
+## Repository Layout
 
-**What you'll run and why** — Docker provides just the infrastructure (Postgres);
-the three services and the storefront run on your machine so you can watch them
-separately. Every service auto-creates + migrates its own database on first boot
-(`productdb`, `orderdb`, `paymentdb`) and product-service seeds sample products.
+```
+commerce-platform/
+├── docs/                     # ADRs, architecture, per-topic guides (learning path below)
+├── common/                   # Shared proto contracts, event schemas, libs  (placeholder)
+├── product-service/          # Java + Spring Boot (REST)
+├── order-service/            # Java + Spring GraphQL
+├── payment-service/          # Go (gRPC)
+├── mcp-server/               # Python (MCP)  (placeholder — Phase 7)
+├── web/                      # ApnaKart storefront + admin (React + Vite)
+├── docker/                   # docker-compose files (infra + one container per service)
+├── scripts/                  # run-demo.sh, seed-data, migrations
+└── infrastructure/           # k8s manifests, monitoring configs  (placeholder)
+```
+
+Full per-service folder layouts are in [`docs/plan.md`](./docs/plan.md).
+
+---
+
+## Running the Project
 
 ### Option A — one command (recommended)
 
@@ -184,11 +236,9 @@ separately. Every service auto-creates + migrates its own database on first boot
 The script checks prerequisites, starts Postgres (compose), then starts the three
 services + the storefront (if a port is already in use it reuses it). Host mode
 writes full logs to `./logs/*.log`; **docker mode** runs one container per service
-(see [Infra Setup & Deployment](./docs/infrastructure.md#infra-setup--deployment-strategy))
-so each has its own log stream — `docker compose -f docker/docker-compose.yml logs -f product-service`.
+(see [Deployment & Containers](#deployment--containers)) so each has its own log
+stream — `docker compose -f docker/docker-compose.yml logs -f product-service`.
 When it finishes, open **http://localhost:5173** (either mode).
-
-Prerequisites: Docker, Java 21, Maven, Go 1.2x, Node 20+.
 
 ### Option B — step by step (to understand the moving parts)
 
@@ -266,7 +316,7 @@ that fits its protocol):
 ### Testing
 
 ```bash
-# Frontend E2E (journey + accessibility + visual regression) — needs services up
+# Frontend E2E (journey + admin smoke + accessibility + visual regression) — needs services up
 cd web
 npx playwright test                       # run all
 npx playwright test --update-snapshots    # re-baseline screenshots after intentional UI changes
@@ -287,11 +337,64 @@ cd order-service && mvn test
 - **🔥 Order payment is still a stub** (always succeeds, no real Charge yet) — the
   gRPC `Charge` integration is the top 🔴 todo. Until then `payment-service` is
   exercised independently (curl/grcpcurl/Swagger above).
-- Services bind `localhost` only; if a port is taken the script reuses the running
-  process rather than starting a duplicate.
+- Host mode: services bind `localhost` only; if a port is taken the script reuses
+  the running process rather than starting a duplicate.
+- Docker mode: stop apps with `./scripts/run-demo.sh docker stop` (or `docker stop
+  --keep-db` to keep Postgres + data); watch one container with `docker compose -f
+  docker/docker-compose.yml logs -f <service>`. First docker run builds images
+  (a few minutes).
 
-Per-service READMEs: [product-service](./product-service/README.md) ·
-[order-service](./order-service/README.md) · [payment-service](./payment-service/README.md).
+---
+
+## Deployment & Containers
+
+Each service is containerized independently (own `Dockerfile`, healthcheck, log
+stream) — see [**Infra Setup & Deployment Strategy**](./docs/infrastructure.md#infra-setup--deployment-strategy)
+in `docs/infrastructure.md` for the units of deployment, the CI/CD strategy, and the
+exact build/start/stop/restart/log commands per service. Config is injected via
+environment variables (`DB_URL`, `PRODUCT_SERVICE_URL`, `WEB_PROXY_*`) — nothing is
+baked into an image.
+
+---
+
+## Docs & Learning Path
+
+All learning docs are organized as a **numbered path** below. A beginner who reads
+them in order gets the full story with zero gaps: plan → architecture → each protocol
+where it lives → frontend → testing → deployment. Each step says what you'll learn
+and what it assumes.
+
+### If you're new — read in this order
+
+| # | Document | What you'll learn | Assumes |
+|---|---|---|---|
+| 1 | [**Project Plan**](./docs/plan.md) | The "what/why", full folder layouts, phase-by-phase execution, protocol best-practices, milestone checklist | nothing |
+| 2 | [**Architecture (HLD)**](./docs/architect.md) | 10,000-foot view: guiding principle, gateway/auth design, communication matrix, observability, staff-level patterns checklist | nothing |
+| 3 | [**Product Service README**](./product-service/README.md) | First protocol — **REST**: layered architecture, DTO/entity separation, RFC 7807 error shape, how to run & test | #1, #2 (start simple) |
+| 4 | [**GraphQL concepts (beginner guide)**](./docs/graphql-concepts.md) | The mental model before reading order-service: REST vs GraphQL, resolvers, custom scalars, N+1/DataLoader, error shape | #3 (REST baseline helps the comparison) |
+| 5 | [**Order Service README**](./order-service/README.md) | Second protocol — **GraphQL** in practice: schema-first, resolvers, DataLoader fix, internal flows, error contracts | #4 |
+| 6 | [**Payment Service README**](./payment-service/README.md) | Third protocol — **gRPC**: RPCs, idempotent money movement, state machine, error mapping, REST gateway | #3 (compares well against REST) |
+| 7 | [**Frontend Architecture**](./docs/frontend-architecture.md) | How `web/` is built: stack, folder layout, pages, verified API contracts, state & error handling | #3–#6 (the APIs it consumes) |
+| 8 | [**Testing Strategy**](./docs/testing-strategy.md) | E2E + accessibility + visual-regression approach, what's automated vs manual, how to run | #7 |
+| 9 | [**Infrastructure & Deployment**](./docs/infrastructure.md) | Containers, docker-compose, per-service healthchecks, CI/CD + deployment strategy, deploy commands | #1–#8 |
+| 10 | (reference) [**ADR-001: Foundation Decisions**](./docs/adr-001-foundation-decisions.md) | Why monorepo / Kong / Keycloak / Maven — recorded decisions and their consequences | any time |
+
+Also part of the path: [`web/README.md`](./web/README.md) (quick run + layout of the
+storefront/admin app).
+
+### Reference map — "I want to know…"
+
+| I want to… | Go to… |
+|---|---|
+| run the demo right now | [Quick Start](#quick-start-5-minutes) or [`infrastructure.md`](./docs/infrastructure.md#starting-and-stopping) |
+| understand one protocol (REST / GraphQL / gRPC) | the matching service README (+ [`GraphQL concepts`](./docs/graphql-concepts.md) for GraphQL) |
+| see how the whole system fits together | [`architect.md`](./docs/architect.md) |
+| change or add a storefront page | [`frontend-architecture.md`](./docs/frontend-architecture.md) |
+| write / regenerate E2E tests | [`testing-strategy.md`](./docs/testing-strategy.md) |
+| deploy or manage containers | [`infrastructure.md`](./docs/infrastructure.md) |
+| know why a foundational choice was made | [`adr-001`](./docs/adr-001-foundation-decisions.md) |
+| know what's next | [Roadmap](#roadmap--phases) + [Todos](#todos) |
+| see the project's history | [Session History](#session-history) |
 
 ---
 
@@ -310,7 +413,7 @@ Per-service READMEs: [product-service](./product-service/README.md) ·
 | 8 | AI Layer (Anthropic/OpenAI SDK, LangGraph) | ⬜ |
 | 9 | Production Readiness (CI/CD, testing, security) | ⬜ |
 
-See [`plan.md`](./plan.md) for the full phase-by-phase checklist and
+See [`docs/plan.md`](./docs/plan.md) for the full phase-by-phase checklist and
 protocol-specific best practices.
 
 ---
@@ -348,18 +451,7 @@ protocol-specific best practices.
 | payment-service-grpc-phase-4 | `ses_f81efd3deffepnpkdekguF5zqX` | Phase 4: Payment Service gRPC — 5 RPCs (Charge/Refund/Capture/Void/GetPayment), idempotent money movement (`int64` minor units), state machine, interceptors, health/reflection, grpc-gateway REST + Swagger UI, unit tests (78% svc coverage), layering guide + beginner README |
 | web-frontend-phase-5 | `feat/web-frontend` | Frontend: React + Vite storefront `web/` — REST + GraphQL clients, catalog/cart/checkout/order-status pages, Playwright E2E journey + ARIA structure + visual-regression baselines, `docs/frontend-architecture.md` + `docs/testing-strategy.md` |
 | web-frontend-apnakart-admin | `ses_f81efd3deffepnpkdekguF5zqX` (continued) · `feat/web-frontend` | Phase 5-6: ApnaKart rebrand (INR / ₹, real product images, demo copy removed) · admin dashboard `/admin` (KPIs, products CRUD, orders view/cancel, payments view/refund via Vite `/v1` proxy) · backend admin APIs (product `imageUrl` + 12 ₹ seeds V3/V4, order `orders`+`orderStats` GraphQL, payment `ListPayments` REST gateway) · unit tests (order Mockito, payment Go) · E2E rebrand + `admin.spec.ts` + regenerated visual baselines · storefront `createOrder` forced INR · README/docs + `run-demo.sh` (admin link, aligned tooling banner, `stop`/`stop --keep-db`). Open new PR #4 |
-
----
-
-## Documentation
-
-- [`Plan`](./docs/plan.md) — folder structures, phase plan, best practices per protocol
-- [`HLD Architect`](./docs/architect.md) — architecture diagrams, design principles, communication matrix, observability & security design
-- [`GraphQL concepts (beginner guide)`](./docs/graphql-concepts.md) — REST-vs-GraphQL, resolvers, scalars, DataLoader/N+1, error shape (start here before reading order-service)
-- [`product-service/README.md`](./product-service/README.md) — REST service specifics
-- [`order-service/README.md`](./order-service/README.md) — GraphQL service specifics + internal flowcharts
-- [`Frontend Architecture`](./docs/frontend-architecture.md) — `web/` storefront stack, folder layout, contracts, state/error handling
-- [`Testing Strategy`](./docs/testing-strategy.md) — E2E/visual/accessibility approach + what's manual vs automated
+| infra-containerization + docs-restructure | `ses_f81efd3deffepnpkdekguF5zqX` (continued) · `feat/docker-containers` | Each service containerized (own Dockerfile, healthcheck, log stream) + `docker-compose` app services + `run-demo.sh docker` mode + `docs/infrastructure.md` deployment strategy + this README restructure (PR #5) |
 
 ---
 

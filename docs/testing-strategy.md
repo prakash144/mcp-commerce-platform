@@ -24,15 +24,20 @@ Last updated: 2026-09-11
 
 ## 3. What is automated vs manual
 
-### Automated (Playwright, `web/e2e/checkout.spec.ts`)
-- **Journey:** home → catalog → product → cart → checkout → order confirmed.
-- **Visual baselines:** 5 stable pages pinned (`01-home` … `05-checkout`); regenerated
-  with `npx playwright test --update-snapshots` only when the change is intentional.
-- **Structure:** ARIA snapshot of the home page (banner, nav with live cart count,
-  headings, product-card names). The ARIA tree doubles as a readable dump for
-  human/agent review.
-- **Admin (smoke, pending):** a second spec asserting `/admin` KPIs render and the
-  Products/Orders/Payments tables load with live data (no mutations).
+### Automated (Playwright, `web/e2e/`)
+- **Journey** — `checkout.spec.ts`: home → catalog → product → cart → checkout →
+  order confirmed.
+- **Visual baselines** — `checkout.spec.ts`: 5 stable pages pinned
+  (`01-home` … `05-checkout`); regenerated with `npx playwright test --update-snapshots`
+  only when the change is intentional.
+- **Structure** — `checkout.spec.ts`: ARIA snapshot of the home page (banner, nav
+  with live cart count, headings, product-card names). The ARIA tree doubles as a
+  readable dump for human/agent review.
+- **Admin smoke** — `admin.spec.ts`: 4 tests asserting `/admin` KPIs render and the
+  Products/Orders/Payments tables load with live, seeded data (no mutations): the
+  dashboard KPIs from live `orderStats`/`products`/`payments` calls, the products
+  table showing the seeded catalog with images, the orders page with its status
+  filter, and the payments page with refundable rows.
 
 ### Backend unit tests
 - `payment-service`: `go test ./...` — idempotency, state machine, validation, and
