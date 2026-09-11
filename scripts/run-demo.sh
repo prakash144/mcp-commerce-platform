@@ -2,6 +2,11 @@
 # Run the full demo stack: Postgres (Docker) + 3 services + storefront.
 # Idempotent: already-running components are left as-is.
 # Logs land in ./logs/*.log — tail them to watch startup.
+#
+# Usage:
+#   ./scripts/run-demo.sh                 start everything
+#   ./scripts/run-demo.sh stop            stop services + Postgres
+#   ./scripts/run-demo.sh stop --keep-db  stop services, keep Postgres
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -11,6 +16,50 @@ mkdir -p "$LOGS"
 say() { printf '\n\033[1;36m== %s\033[0m\n' "$*"; }
 die() { printf '\033[1;31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 is_listening() { nc -z -w2 localhost "$1" >/dev/null 2>&1; }
+
+# ─── stop mode ───────────────────────────────────────────────────────────
+# The demo services listen on these ports (8090 is the payment REST gateway,
+# same process as 50051, so killing 50051 covers it).
+DEMO_PORTS=(5173 50051 8081 8082 8090)
+
+stop_demo() {
+  echo "Stopping demo services…"
+  for port in "${DEMO_PORTS[@]}"; do
+    pids=$(lsof -ti tcp:"$port" 2>/dev/null || true)
+    if [ -n "$pids" ]; then
+      kill $pids 2>/dev/null || true
+      # graceful shutdown can take a few seconds — escalate to SIGKILL
+      for _ in $(seq 1 15); do
+        nc -z -w1 localhost "$port" 2>/dev/null || break
+        sleep 1
+      done
+      stragglers=$(lsof -ti tcp:"$port" 2>/dev/null || true)
+      if [ -n "$stragglers" ]; then
+        kill -9 $stragglers 2>/dev/null || true
+      fi
+    fi
+    if nc -z -w1 localhost "$port" 2>/dev/null; then
+      echo "  ✗ :$port still up — force it manually with: lsof -ti tcp:$port | xargs kill -9"
+    else
+      echo "  ✓ :$port stopped"
+    fi
+  done
+  if [ "${KEEP_DB:-0}" = "0" ]; then
+    echo "Stopping Postgres…"
+    docker compose -f "$ROOT/docker/docker-compose.yml" down 2>/dev/null || true
+  else
+    echo "Postgres left running."
+  fi
+  echo "Done — demo stopped."
+  exit 0
+}
+
+case "${1:-}" in
+  stop)
+    [ "${2:-}" = "--keep-db" ] && KEEP_DB=1
+    stop_demo
+    ;;
+esac
 
 command -v docker >/dev/null || die "docker is required (for Postgres)"
 command -v java   >/dev/null || die "java 21 is required"
@@ -98,6 +147,7 @@ box_gap
 box_row 'E2E tests (stack running):'
 box_row '  cd web && npx playwright test'
 box_gap
-box_row 'Stop: kill the java / go / node processes you started.'
-box_row 'Postgres: docker compose -f docker/docker-compose.yml down'
+box_row '  Stop everything together:'
+box_row '    ./scripts/run-demo.sh stop            (services + Postgres)'
+box_row '    ./scripts/run-demo.sh stop --keep-db  (Postgres stays up)'
 printf '╰%70s╯\n' '' | tr ' ' '─'
