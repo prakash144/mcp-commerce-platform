@@ -79,24 +79,25 @@ for port in 8081 8082 8090 5173; do
   if [ "$up" = 1 ]; then echo "  ✓ :$port is up"; else echo "  ✗ :$port not responding — see logs/"; fi
 done
 
-cat <<'EOF'
-
-╭────────────────────────────────────────────────────────────────╮
-│  Demo is running — open the storefront:                        │
-│                                                                │
-│    http://localhost:5173   ← frontend (Lumen & Co.)            │
-│    http://localhost:8090/docs  ← payment Swagger UI            │
-│    http://localhost:8081/swagger-ui.html ← product Swagger UI  │
-│    http://localhost:8082/graphiql ← order GraphQL tooling      │
-│                                                                │
-│  Smoke checks:                                                 │
-│    curl "http://localhost:8081/api/v1/products?page=0&size=5"   │
-│    grpcurl -plaintext localhost:50051 grpc.health.v1.Health/Check│
-│                                                                │
-│  E2E tests (needs the stack running — just run it):            │
-│    cd web && npx playwright test                               │
-│                                                                │
-│  Stop everything: kill the java/go/node processes you started; │
-│  Postgres keeps running (docker compose ... down to remove it).│
-╰────────────────────────────────────────────────────────────────╯
-EOF
+box_row() { printf '│  %-66s│\n' "$1"; }
+box_gap() { printf '│%70s│\n' ''; }
+printf '╭%70s╮\n' '' | tr ' ' '─'
+box_row 'Demo is running - open the storefront:'
+box_gap
+box_row '  Frontend      http://localhost:5173         (Lumen & Co.)'
+box_gap
+box_row 'Service API tooling (per service):'
+box_row '  product  REST     Swagger   http://localhost:8081/swagger-ui.html'
+box_row '  order    GraphQL  GraphiQL  http://localhost:8082/graphiql'
+box_row '  payment  gRPC+REST Swagger  http://localhost:8090/docs'
+box_gap
+box_row 'Smoke checks:'
+box_row '  curl -s "http://localhost:8081/api/v1/products?page=0&size=5"'
+box_row '  grpcurl -plaintext localhost:50051 grpc.health.v1.Health/Check'
+box_gap
+box_row 'E2E tests (stack running):'
+box_row '  cd web && npx playwright test'
+box_gap
+box_row 'Stop: kill the java / go / node processes you started.'
+box_row 'Postgres: docker compose -f docker/docker-compose.yml down'
+printf '╰%70s╯\n' '' | tr ' ' '─'
