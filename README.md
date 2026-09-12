@@ -378,6 +378,7 @@ and what it assumes.
 | 8 | [**Testing Strategy**](./docs/testing-strategy.md) | E2E + accessibility + visual-regression approach, what's automated vs manual, how to run | #7 |
 | 9 | [**Infrastructure & Deployment**](./docs/infrastructure.md) | Containers, docker-compose, per-service healthchecks, CI/CD + deployment strategy, deploy commands | #1–#8 |
 | 10 | (reference) [**ADR-001: Foundation Decisions**](./docs/adr-001-foundation-decisions.md) | Why monorepo / Kong / Keycloak / Maven — recorded decisions and their consequences | any time |
+| 11 | (optional) [**Staff-Role Path**](./docs/staff-path.md) | Which pending feature to build next and why — career-accelerating picks with a definition of done per item (build it yourself; you're the engineer) | all of the above |
 
 Also part of the path: [`web/README.md`](./web/README.md) (quick run + layout of the
 storefront/admin app).
@@ -394,6 +395,7 @@ storefront/admin app).
 | deploy or manage containers | [`infrastructure.md`](./docs/infrastructure.md) |
 | know why a foundational choice was made | [`adr-001`](./docs/adr-001-foundation-decisions.md) |
 | know what's next | [Roadmap](#roadmap--phases) + [Todos](#todos) |
+| decide which feature to build next (Staff-level path) | [`staff-path.md`](./docs/staff-path.md) |
 | see the project's history | [Session History](#session-history) |
 
 ---
@@ -439,6 +441,10 @@ protocol-specific best practices.
 | **AI** | MCP server tools over existing APIs (Phase 7) + AI layer (Phase 8) | 🟡 | ⬜ |
 | **CI** | CI/CD, load tests, security pass (Phase 9) | 🟡 | ⬜ |
 | **Perf** | Redis read-through cache for product-service | 🔵 | ⬜ |
+
+> **Building the next one?** See the [**Staff-Role Path**](./docs/staff-path.md) —
+> a shortlist of which pending items maximize Staff-level signal, with a
+> definition of done for each (recommended start: the real gRPC `Charge`).
 
 ---
 
