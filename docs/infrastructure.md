@@ -60,9 +60,13 @@ Kong and Keycloak sit on both networks — they are the entry points in producti
 
 | File | Purpose |
 |---|---|
-| `docker/docker-compose.yml` | All container definitions, networks, volumes |
+| `docker/docker-compose.yml` | All container definitions (infra + app services), networks, volumes |
 | `docker/kong-config.yml` | Kong declarative config (DB-less mode) — routes added per phase |
-| `docker/scripts/init-multiple-dbs.sh` | Creates 4 databases at Postgres first boot |
+| `docker/scripts/init-multiple-dbs.sh` | Creates the databases at Postgres first boot |
+| `product-service/Dockerfile` | product-service image (Maven build → Java 21 JRE, non-root) |
+| `order-service/Dockerfile` | order-service image (Maven build → Java 21 JRE, non-root) |
+| `payment-service/Dockerfile` | payment-service image (Go build → Alpine, non-root, + grpc-health-probe) |
+| `web/Dockerfile` | storefront image (Node 22 + Vite dev server) |
 
 ---
 
@@ -102,6 +106,28 @@ Kong and Keycloak sit on both networks — they are the entry points in producti
 - **Config:** `docker/kong-config.yml` mounted as declarative config
 - **Why DB-less?** One less database to run. Routes are static and change only when we add a new service — no need for dynamic Admin API usage.
 
+### Application services (one container per service — separate log streams)
+Each app has its own image (built from source via the service's `Dockerfile`), its own
+log stream, and a readiness probe. They run on the `backend` network and reach
+Postgres by container name (`postgres`), so no `localhost` wiring in containers.
+
+| Service | Image | Host ports | Depends on | Healthcheck | Env (compose) |
+|---|---|---|---|---|---|
+| product-service | Maven build → `eclipse-temurin:21-jre-alpine`, non-root `app` | `8081` | postgres (healthy) | `GET /actuator/health` | `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` |
+| order-service | Maven build → `eclipse-temurin:21-jre-alpine`, non-root `app` | `8082` | postgres (healthy), product-service (started) | `GET /actuator/health` | `DB_URL` (orderdb), `PRODUCT_SERVICE_URL=http://product-service:8081` |
+| payment-service | Go 1.26 build (static, `CGO=0`) → `alpine:3.20`, non-root `app` | `50051` (gRPC), `8090` (REST) | postgres (healthy) | `grpc_health_probe -addr=:50051` | `DB_HOST=postgres`, `DB_NAME=paymentdb`, ports, creds |
+| web | `node:22-alpine` + Vite dev server (host source bind-mounted for HMR) | `5173` | — | `GET /` | `WEB_PROXY_PRODUCT`, `WEB_PROXY_ORDER`, `WEB_PROXY_PAYMENT` |
+
+- **Why a container per service?** Independent lifecycles (start/stop/restart/logs per
+  service) and closer-to-prod isolation — each service is its own deployable unit.
+- **Config is env-driven** — images contain no hardcoded hostnames or secrets; compose
+  injects them. On the host (non-docker) run, the Java services default to
+  `localhost` via `${DB_URL:...}` / `${PRODUCT_SERVICE_URL:http://localhost:8081}`.
+- **web proxy** — the Vite config reads `WEB_PROXY_*` for `/api` `/graphql` `/v1`
+  upstreams (container names inside compose, `localhost` ports by default on the host).
+- **Postgres remains a single container** (dev pragmatism) with four logical databases;
+  `./scripts/run-demo.sh stop --keep-db` keeps it and the `postgres-data` volume.
+
 ---
 
 ## Port Summary
@@ -118,6 +144,91 @@ Kong and Keycloak sit on both networks — they are the entry points in producti
 | `8001` | Kong Admin API | HTTP | Debugging / plugin config |
 
 **Local dev note:** backend network is host-accessible for local development (services, DBs, Kafka). In production, add `internal: true` back to the backend network and route all traffic through Kong.
+
+---
+
+## Infra Setup & Deployment Strategy
+
+### Units of deployment
+
+Every service ships as its own container image, built from source with a
+**multi-stage Dockerfile** (build deps live only in the builder stage; the runtime
+stage is a slim base with a **non-root** user, a **healthcheck**, and `EXPOSE` only
+what it serves). Postgres is the only infra container this stack needs to run.
+
+| Service | Builder stage | Runtime stage | Readiness |
+|---|---|---|---|
+| product-service | `maven:3.9-eclipse-temurin-21-alpine` | `eclipse-temurin:21-jre-alpine` (`app`) | `GET /actuator/health` |
+| order-service | `maven:3.9-eclipse-temurin-21-alpine` | `eclipse-temurin:21-jre-alpine` (`app`) | `GET /actuator/health` |
+| payment-service | `golang:1.26-alpine` (static `CGO_ENABLED=0`) | `alpine:3.20` (`app`) + `grpc-health-probe` | `grpc_health_probe -addr=:50051` |
+| web | `node:22-alpine` (`npm ci`) | same image = Vite dev server | `GET /` |
+
+Deployment principles:
+
+- **Config is env-injected, never baked into an image** — compose sets DB URLs/user/pass,
+  inter-service base URLs, and the web proxy upstreams. The same image runs anywhere;
+  only environment differs.
+- **One command to rule them all** — `docker compose` spins identical containers locally and
+  remotely; `scripts/run-demo.sh docker` wraps it (build + start + banner).
+- **Crash-safe defaults** — `restart: unless-stopped`, healthchecks gate `depends_on`
+  ordering, and Postgres data lives in the named `postgres-data` volume (survives
+  `down`, wiped only by `down -v`).
+- **Out of scope for now** (tracked in the roadmap): horizontal scaling/rolling
+  zero-downtime deploys (K8s/compose scale), image registry + tag promotion, secrets
+  manager, gateway/auth (Kong/Keycloak) enforced on the frontend path.
+
+### CI/CD strategy
+
+One pipeline per service (thin, deployable independently — this is the point of the
+per-service split). A service's image is built, tested, tagged, and pushed *only*
+when its own code changes; other services are untouched.
+
+1. **CI (on push/PR to a service path):** unit/type checks — `go test ./...`,
+   `mvn test`, `npm run lint` + `npm run build` — then `docker build` the image with
+   **cached** Maven/Golang/Node layers (BuildKit cache mounts).
+2. **Tag & publish** — tag every image with `git rev-parse --short HEAD` (here: pushed
+   to a registry like GHCR; the compose file keeps building from local source until then).
+3. **CD (manual approval)** — pull the tagged image and `docker compose up -d <service>`,
+   then smoke-check its health endpoint (`curl localhost:<port>/actuator/health`,
+   `grpc_health_probe`, `GET /`) before proceeding to the next service.
+4. **Web E2E** (Playwright turn instead of CD) is run against a live stack — it is a
+   manual step, not part of the deploy gate.
+
+> Pragmatic gates today: PRs must pass CI; deploys are **manual** (no auto-deploy) —
+> best for a learning project while Kong/Keycloak and a registry are still TODO.
+
+### Deployment commands (per service)
+
+```bash
+export COMPOSE="docker compose -f docker/docker-compose.yml"
+
+# ── build / start everything (recommended: use the script) ──────────────
+./scripts/run-demo.sh docker                       # build + up postgres + all 4 services
+
+# ── manage a single service (others keep running) ───────────────────────
+$COMPOSE up -d --build product-service             # build + (re)start only product
+$COMPOSE restart order-service                     # restart one service
+$COMPOSE stop web                                  # stop one service
+$COMPOSE up -d payment-service                     # start it again
+
+# ── watch one service's logs (separate per service) ─────────────────────
+$COMPOSE logs -f product-service
+$COMPOSE logs -f order-service
+$COMPOSE logs -f payment-service    # gRPC :50051 + REST :8090 streams
+$COMPOSE logs -f web
+# or: ./scripts/run-demo.sh docker logs   (all four at once)
+
+# ── health / lifecycle ───────────────────────────────────────────────────
+$COMPOSE ps                                     # status + health per container
+$COMPOSE up -d                                  # full stack incl. infra (redis/kafka/keycloak/kong)
+$COMPOSE down                                  # stop + remove containers, keep data
+$COMPOSE down -v                               # also wipe the postgres-data volume
+$COMPOSE config --quiet && echo valid          # validate the compose file
+```
+
+> Host mode (`./scripts/run-demo.sh`, no `docker` arg) still runs the four services
+> as host processes with per-service files in `./logs/*.log` — both modes share the
+> same ports, so only one may run at a time.
 
 ---
 
