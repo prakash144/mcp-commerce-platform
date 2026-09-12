@@ -110,5 +110,5 @@ Topical and lands the project's theme fast; comparatively light — a good
 > you're stuck and ask.
 
 **Start here:** Item 1 (real gRPC Charge) — it's the smallest and makes the current
-demo fully real. Track progress in the root [`Todos`](../README.md#todos) (flip
+demo fully real. Track progress in the [**Development Tracking**](./dev-tracking.md#todos) page (flip
 `StubPaymentClient` to ✅ when done).

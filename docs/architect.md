@@ -27,13 +27,13 @@ business service.
                                      HTTPS (REST / GraphQL)
                                               |
                                               v
-                         +----------------------------------------+
-                         |              API Gateway                |
-                         |  - TLS termination                      |
+                         +------------------------------------------+
+                         |              API Gateway                 |
+                         |  - TLS termination                       |
                          |  - JWT validation (via Auth Service JWKS)|
                          |  - Rate limiting (Redis token bucket)    |
                          |  - Routing + correlation-ID injection    |
-                         +----------------------------------------+
+                         +------------------------------------------+
                               |                    |
                      REST (validated)      GraphQL (validated)
                               |                    |
@@ -62,10 +62,10 @@ business service.
 
         +--------------------------------------------------------------------+
         |  Auth Service (OIDC/OAuth2 IdP)                                    |
-        |  - Issues signed JWTs (access + refresh)                            |
-        |  - Exposes JWKS for stateless validation                            |
-        |  - Handles login (Authorization Code + PKCE) and machine auth       |
-        |    (Client Credentials, used by mcp-server)                         |
+        |  - Issues signed JWTs (access + refresh)                           |
+        |  - Exposes JWKS for stateless validation                           |
+        |  - Handles login (Authorization Code + PKCE) and machine auth      |
+        |    (Client Credentials, used by mcp-server)                        |
         +--------------------------------------------------------------------+
                  ^                          ^                        ^
                  | issues token             | validates JWT          | client-credentials
@@ -89,7 +89,7 @@ convention.
 
 ```
                          +------------------------------------+
-                         |  ChatGPT / Claude / AI Assistant    |
+                         |  ChatGPT / Claude / AI Assistant   |
                          +------------------------------------+
                                         |
                                   MCP Protocol
