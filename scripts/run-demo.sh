@@ -1,12 +1,23 @@
 #!/usr/bin/env bash
-# Run the full demo stack: Postgres (Docker) + 3 services + storefront.
+# Run the commerce platform in one of two modes.
+#
+#   HOST mode (default):  every service runs as a host process; stdout goes to
+#     ./logs/<service>.log (tail -f logs/order-service.log, etc.).
+#   DOCKER mode:          every service runs as its own container, built from
+#     source (docker/docker-compose.yml). Each container has its own log stream:
+#     docker compose -f docker/docker-compose.yml logs -f <service>.
+#
 # Idempotent: already-running components are left as-is.
-# Logs land in ./logs/*.log — tail them to watch startup.
 #
 # Usage:
-#   ./scripts/run-demo.sh                 start everything
-#   ./scripts/run-demo.sh stop            stop services + Postgres
-#   ./scripts/run-demo.sh stop --keep-db  stop services, keep Postgres
+#   ./scripts/run-demo.sh                      start host processes
+#   ./scripts/run-demo.sh stop                 stop host services + Postgres
+#   ./scripts/run-demo.sh stop --keep-db       stop host services, keep Postgres
+#   ./scripts/run-demo.sh docker               build + start every service as a container
+#   ./scripts/run-demo.sh docker stop          stop containers (+ Postgres)
+#   ./scripts/run-demo.sh docker stop --keep-db   stop app containers, keep Postgres
+#   ./scripts/run-demo.sh docker logs          follow logs for every service container
+#   ./scripts/run-demo.sh help                 show this usage
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -16,6 +27,31 @@ mkdir -p "$LOGS"
 say() { printf '\n\033[1;36m== %s\033[0m\n' "$*"; }
 die() { printf '\033[1;31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 is_listening() { nc -z -w2 localhost "$1" >/dev/null 2>&1; }
+
+usage() {
+  sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+}
+
+COMPOSE_FILE="$ROOT/docker/docker-compose.yml"
+APP_SERVICES="product-service order-service payment-service web"
+
+docker_compose() { docker compose -f "$COMPOSE_FILE" "$@"; }
+
+stop_docker() {
+  if [ "${KEEP_DB:-0}" = "1" ]; then
+    echo "Stopping app containers (Postgres + data stay up)."
+    docker_compose stop $APP_SERVICES
+  else
+    echo "Stopping app containers + Postgres."
+    docker_compose down
+  fi
+  echo "Done — containers stopped."
+  exit 0
+}
+
+docker_logs() {
+  exec docker_compose logs -f --tail=50 $APP_SERVICES
+}
 
 # ─── stop mode ───────────────────────────────────────────────────────────
 # The demo services listen on these ports (8090 is the payment REST gateway,
@@ -54,18 +90,39 @@ stop_demo() {
   exit 0
 }
 
+MODE="host"
 case "${1:-}" in
+  help|-h|--help)
+    usage; exit 0
+    ;;
   stop)
     [ "${2:-}" = "--keep-db" ] && KEEP_DB=1
     stop_demo
     ;;
+  docker)
+    MODE="docker"
+    shift || true
+    case "${1:-}" in
+      stop)  [ "${2:-}" = "--keep-db" ] && KEEP_DB=1; stop_docker ;;
+      logs)  docker_logs ;;
+      "")    : ;;  # start docker mode below
+      *)     usage; exit 1 ;;
+    esac
+    ;;
+  "")
+    : ;;  # default: host mode start
+  *)
+    usage; exit 1
+    ;;
 esac
 
 command -v docker >/dev/null || die "docker is required (for Postgres)"
-command -v java   >/dev/null || die "java 21 is required"
-command -v mvn    >/dev/null || die "maven is required (order-service has no wrapper)"
-command -v go     >/dev/null || die "go is required (payment-service)"
-command -v node   >/dev/null || die "node is required (frontend)"
+if [ "$MODE" = "host" ]; then
+  command -v java   >/dev/null || die "java 21 is required"
+  command -v mvn    >/dev/null || die "maven is required (order-service has no wrapper)"
+  command -v go     >/dev/null || die "go is required (payment-service)"
+  command -v node   >/dev/null || die "node is required (frontend)"
+fi
 
 say "1/5 Infrastructure — Postgres via Docker"
 if docker ps --format '{{.Names}}' | grep -qE '(^|/)postgres'; then
@@ -80,34 +137,39 @@ else
     || say "Postgres not healthy yet — check: docker compose -f docker/docker-compose.yml ps"
 fi
 
-start_service() {
-  local name="$1" port="$2"; shift 2
-  if is_listening "$port"; then
-    say "${name} already running on :${port}"
-  else
-    say "Starting ${name} on :${port} → logs/$name.log"
-    ( cd "$ROOT/$name" && "$@" ) >"$LOGS/$name.log" 2>&1 &
-  fi
-}
-
-say "2/5 product-service (REST :8081)"
-start_service product-service 8081 ./mvnw spring-boot:run
-
-say "3/5 order-service (GraphQL :8082)"
-start_service order-service 8082 mvn spring-boot:run -q
-
-say "4/5 payment-service (gRPC :50051 + REST :8090)"
-start_service payment-service 50051 go run ./cmd/server
-
-say "5/5 storefront (web :5173)"
-if is_listening 5173; then
-  say "Web already running on :5173"
+if [ "$MODE" = "docker" ]; then
+  say "Starting every service as its own container (docker compose up --build)"
+  docker_compose up -d --build $APP_SERVICES
 else
-  if [ ! -d "$ROOT/web/node_modules" ]; then
-    echo "Installing frontend dependencies…"
-    ( cd "$ROOT/web" && npm install ) >"$LOGS/web-install.log" 2>&1
+  start_service() {
+    local name="$1" port="$2"; shift 2
+    if is_listening "$port"; then
+      say "${name} already running on :${port}"
+    else
+      say "Starting ${name} on :${port} → logs/$name.log"
+      ( cd "$ROOT/$name" && "$@" ) >"$LOGS/$name.log" 2>&1 &
+    fi
+  }
+
+  say "2/5 product-service (REST :8081)"
+  start_service product-service 8081 ./mvnw spring-boot:run
+
+  say "3/5 order-service (GraphQL :8082)"
+  start_service order-service 8082 mvn spring-boot:run -q
+
+  say "4/5 payment-service (gRPC :50051 + REST :8090)"
+  start_service payment-service 50051 go run ./cmd/server
+
+  say "5/5 storefront (web :5173)"
+  if is_listening 5173; then
+    say "Web already running on :5173"
+  else
+    if [ ! -d "$ROOT/web/node_modules" ]; then
+      echo "Installing frontend dependencies…"
+      ( cd "$ROOT/web" && npm install ) >"$LOGS/web-install.log" 2>&1
+    fi
+    start_service web 5173 npm run dev
   fi
-  start_service web 5173 npm run dev
 fi
 
 say "Waiting for services to accept traffic…"
@@ -125,7 +187,15 @@ for port in 8081 8082 8090 5173; do
     if curl -s -o /dev/null --max-time 2 "$(url_for_port "$port")"; then up=1; break; fi
     sleep 1
   done
-  if [ "$up" = 1 ]; then echo "  ✓ :$port is up"; else echo "  ✗ :$port not responding — see logs/"; fi
+  if [ "$up" = 1 ]; then
+    echo "  ✓ :$port is up"
+  else
+    if [ "$MODE" = "docker" ]; then
+      echo "  ✗ :$port not responding — docker compose -f docker/docker-compose.yml ps / logs"
+    else
+      echo "  ✗ :$port not responding — see logs/"
+    fi
+  fi
 done
 
 box_row() { printf '│  %-66s│\n' "$1"; }
@@ -155,11 +225,33 @@ box_row '  curl -s -X POST localhost:8082/graphql \'
 box_row "  -d '{ orderStats { totalOrders revenue } }'"
 box_gap
 box_h
+if [ "$MODE" = "docker" ]; then
+  box_row 'Container logs - separate per service:'
+  box_row '  docker compose -f docker/docker-compose.yml logs -f product-service'
+  box_row '  docker compose -f docker/docker-compose.yml logs -f order-service'
+  box_row '  docker compose -f docker/docker-compose.yml logs -f payment-service'
+  box_row '  docker compose -f docker/docker-compose.yml logs -f web'
+  box_row '  (or: ./scripts/run-demo.sh docker logs)'
+else
+  box_row 'Service logs - separate per service:'
+  box_row '  tail -f logs/product-service.log'
+  box_row '  tail -f logs/order-service.log'
+  box_row '  tail -f logs/payment-service.log'
+  box_row '  tail -f logs/web.log'
+fi
+box_gap
+box_h
 box_row 'E2E tests (stack must be running):'
 box_row '  cd web && npx playwright test'
 box_gap
 box_h
-box_row 'Stop everything:'
-box_row "$(printf '  %-38s%s' './scripts/run-demo.sh stop' '(services + Postgres)')"
-box_row "$(printf '  %-38s%s' './scripts/run-demo.sh stop --keep-db' '(Postgres stays up)')"
+if [ "$MODE" = "docker" ]; then
+  box_row 'Stop everything:'
+  box_row "$(printf '  %-38s%s' './scripts/run-demo.sh docker stop'  '(containers + Postgres)')"
+  box_row "$(printf '  %-38s%s' './scripts/run-demo.sh docker stop --keep-db' '(Postgres stays up)')"
+else
+  box_row 'Stop everything:'
+  box_row "$(printf '  %-38s%s' './scripts/run-demo.sh stop' '(services + Postgres)')"
+  box_row "$(printf '  %-38s%s' './scripts/run-demo.sh stop --keep-db' '(Postgres stays up)')"
+fi
 printf '╰%68s╯\n' '' | tr ' ' '─'

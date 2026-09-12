@@ -177,12 +177,16 @@ separately. Every service auto-creates + migrates its own database on first boot
 ### Option A — one command (recommended)
 
 ```bash
-./scripts/run-demo.sh
+./scripts/run-demo.sh          # host processes — logs/ per service
+./scripts/run-demo.sh docker   # every service as its own container — docker compose logs
 ```
 
 The script checks prerequisites, starts Postgres (compose), then starts the three
-services + the storefront (if a port is already in use it reuses it). Full logs in
-`./logs/*.log`. When it finishes, open **http://localhost:5173**.
+services + the storefront (if a port is already in use it reuses it). Host mode
+writes full logs to `./logs/*.log`; **docker mode** runs one container per service
+(see [Infra Setup & Deployment](./docs/infrastructure.md#infra-setup--deployment-strategy))
+so each has its own log stream — `docker compose -f docker/docker-compose.yml logs -f product-service`.
+When it finishes, open **http://localhost:5173** (either mode).
 
 Prerequisites: Docker, Java 21, Maven, Go 1.2x, Node 20+.
 
