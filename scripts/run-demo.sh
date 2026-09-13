@@ -33,9 +33,21 @@ usage() {
 }
 
 COMPOSE_FILE="$ROOT/docker/docker-compose.yml"
-APP_SERVICES="product-service order-service payment-service web"
+APP_SERVICES="product-service order-service payment-service web loki grafana"
+# `docker logs` follows only the app services — loki/grafana self-log too chatty
+LOG_SERVICES="product-service order-service payment-service web"
 
 docker_compose() { docker compose -f "$COMPOSE_FILE" "$@"; }
+
+docker_loki_plugin_ready() {
+  if ! docker plugin ls --format '{{.Name}}' 2>/dev/null | grep -q '^loki:'; then
+    warn() { printf '\033[1;33mWARN: %s\033[0m\n' "$*" >&2; }
+    warn "Loki Docker logging driver plugin not found — containers would not ship logs."
+    warn "Install it once, then re-run:"
+    warn "  docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions"
+    exit 1
+  fi
+}
 
 stop_docker() {
   if [ "${KEEP_DB:-0}" = "1" ]; then
@@ -50,7 +62,7 @@ stop_docker() {
 }
 
 docker_logs() {
-  exec docker_compose logs -f --tail=50 $APP_SERVICES
+  exec docker_compose logs -f --tail=50 $LOG_SERVICES
 }
 
 # ─── stop mode ───────────────────────────────────────────────────────────
@@ -139,6 +151,7 @@ fi
 
 if [ "$MODE" = "docker" ]; then
   say "Starting every service as its own container (docker compose up --build)"
+  docker_loki_plugin_ready
   docker_compose up -d --build $APP_SERVICES
 else
   start_service() {
@@ -203,18 +216,18 @@ box_gap() { printf '│%68s│\n' ''; }
 box_h()   { printf '├%68s┤\n' '' | tr ' ' '─'; }
 
 printf '╭%68s╮\n' '' | tr ' ' '─'
-box_row 'Demo is running - open the UI:'
+box_row 'Commerce Platform - demo running'
 box_gap
-box_row "$(printf '  %-12s%s' 'Storefront' 'http://localhost:5173        (ApnaKart)')"
-box_row "$(printf '  %-12s%s' 'Admin'      'http://localhost:5173/admin   (dashboard)')"
+box_row "$(printf '  %-11s %-24s %s' 'Storefront' 'http://localhost:5173'      '(ApnaKart)')"
+box_row "$(printf '  %-11s %-24s %s' 'Admin'      'http://localhost:5173/admin' '(dashboard)')"
+box_row "$(printf '  %-11s %-24s %s' 'Grafana'    'http://localhost:3000'      '(admin/admin)')"
 box_gap
 box_h
-box_row 'Service API tooling (per service):'
-box_row "$(printf '%-7s %-13s %-8s %s' 'service' 'API' 'docs' '')"
-box_row "$(printf '%-7s %-13s %-8s %s' 'product' 'REST :8081'  'Swagger'  'localhost:8081/swagger-ui.html')"
-box_row "$(printf '%-7s %-13s %-8s %s' 'order'   'GraphQL :8082' 'GraphiQL' 'localhost:8082/graphiql')"
-box_row "$(printf '%-7s %-13s %-8s %s' 'payment' 'REST :8090'  'Swagger'  'localhost:8090/docs')"
-box_row '    └ (gRPC backend on :50051, same process)'
+box_row 'Service tooling:'
+box_row "$(printf '  %-8s %-13s %-8s %s' 'product' 'REST :8081'   'Swagger'  'localhost:8081/swagger-ui.html')"
+box_row "$(printf '  %-8s %-13s %-8s %s' 'order'   'GraphQL :8082' 'GraphiQL' 'localhost:8082/graphiql')"
+box_row "$(printf '  %-8s %-13s %-8s %s' 'payment' 'REST :8090'   'Swagger'  'localhost:8090/docs')"
+box_row '    gRPC backend is :50051 (same process)'
 box_gap
 box_h
 box_row 'Smoke checks (services running):'
@@ -222,22 +235,19 @@ box_row '  curl -s "http://localhost:8081/api/v1/products?page=0&size=5"'
 box_row '  curl -s "http://localhost:8090/v1/payments?page=0&page_size=5"'
 box_row '  grpcurl -plaintext localhost:50051 grpc.health.v1.Health/Check'
 box_row '  curl -s -X POST localhost:8082/graphql \'
-box_row "  -d '{ orderStats { totalOrders revenue } }'"
+box_row "     -d '{ orderStats { totalOrders revenue } }'"
 box_gap
 box_h
+box_row 'Logs:'
+box_row "$(printf '  %-11s %-24s %s' 'Grafana'    'http://localhost:3000'      '(admin/admin)')"
 if [ "$MODE" = "docker" ]; then
-  box_row 'Container logs - separate per service:'
-  box_row '  docker compose -f docker/docker-compose.yml logs -f product-service'
-  box_row '  docker compose -f docker/docker-compose.yml logs -f order-service'
-  box_row '  docker compose -f docker/docker-compose.yml logs -f payment-service'
-  box_row '  docker compose -f docker/docker-compose.yml logs -f web'
-  box_row '  (or: ./scripts/run-demo.sh docker logs)'
+  box_row "$(printf '  %-11s %-24s %s' 'Dashboard'   'Commerce - Logs'          '(service dropdown)')"
+  box_row "$(printf '  %-11s %-24s %s' 'LogQL'       '{svc="order-service"}'   '|= "ERROR"')"
+  box_row "$(printf '  %-11s %-24s %s' 'Per service' './scripts/run-demo.sh docker logs' '')"
 else
-  box_row 'Service logs - separate per service:'
-  box_row '  tail -f logs/product-service.log'
-  box_row '  tail -f logs/order-service.log'
-  box_row '  tail -f logs/payment-service.log'
-  box_row '  tail -f logs/web.log'
+  box_row '  note: host-mode logs stay in ./logs/*.log'
+  box_row '  Grafana needs docker mode for live logs:'
+  box_row '  ./scripts/run-demo.sh docker'
 fi
 box_gap
 box_h
@@ -247,11 +257,11 @@ box_gap
 box_h
 if [ "$MODE" = "docker" ]; then
   box_row 'Stop everything:'
-  box_row "$(printf '  %-38s%s' './scripts/run-demo.sh docker stop'  '(containers + Postgres)')"
-  box_row "$(printf '  %-38s%s' './scripts/run-demo.sh docker stop --keep-db' '(Postgres stays up)')"
+  box_row "$(printf '  %-38s %s' './scripts/run-demo.sh docker stop'        '(containers + Postgres)')"
+  box_row "$(printf '  %-38s %s' './scripts/run-demo.sh docker stop --keep-db' '(Postgres stays up)')"
 else
   box_row 'Stop everything:'
-  box_row "$(printf '  %-38s%s' './scripts/run-demo.sh stop' '(services + Postgres)')"
-  box_row "$(printf '  %-38s%s' './scripts/run-demo.sh stop --keep-db' '(Postgres stays up)')"
+  box_row "$(printf '  %-38s %s' './scripts/run-demo.sh stop'        '(services + Postgres)')"
+  box_row "$(printf '  %-38s %s' './scripts/run-demo.sh stop --keep-db' '(Postgres stays up)')"
 fi
 printf '╰%68s╯\n' '' | tr ' ' '─'

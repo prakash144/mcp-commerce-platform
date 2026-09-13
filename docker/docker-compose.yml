@@ -4,6 +4,24 @@ networks:
   backend:
     driver: bridge
 
+# Log shipping: the loki Docker logging plugin (grafana/loki-docker-driver,
+# install once per host: docker plugin install ... --alias loki) streams each
+# container's logs to the loki service. keep-file preserves `docker compose logs`.
+# label `svc` is set per-service so Grafana can filter by it. Loki label names
+# cannot contain dots — that's why it is `svc`, not `platform.service`.
+# NOTE: the plugin runs on the Docker HOST (not in a container network), so it
+# must reach Loki via the host-published port localhost:3100 — not the
+# container DNS name `loki`.
+x-logging: &loki-logging
+  driver: loki
+  options:
+    loki-url: "http://localhost:3100/loki/api/v1/push"
+    labels: "svc"
+    keep-file: "true"
+    loki-batch-size: "400"
+    loki-retries: "5"
+    max-size: "10m"
+
 services:
   # ─── Postgres (single instance, multiple databases — dev pragmatism) ───
   postgres:
@@ -90,10 +108,54 @@ services:
       SCHEMA_REGISTRY_HOST_NAME: schema-registry
       SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:29092
 
+  # ─── Observability: Loki (log store) + Grafana (UI) ───
+  loki:
+    image: grafana/loki:3.4.2
+    hostname: loki
+    networks:
+      - backend
+    ports:
+      - "3100:3100"   # LogQL API (logs from the driver + debugging from host)
+    command: -config.file=/etc/loki/config.yaml
+    volumes:
+      - ./loki/config.yaml:/etc/loki/config.yaml
+      - loki-data:/loki
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3100/ready >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  grafana:
+    image: grafana/grafana:11.5.2
+    hostname: grafana
+    networks:
+      - backend
+    ports:
+      - "3000:3000"
+    depends_on:
+      loki:
+        condition: service_healthy
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - grafana-data:/var/lib/grafana
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
   # ─── Keycloak (bridges frontend + backend) ───
   keycloak:
     image: quay.io/keycloak/keycloak:26.7.0
     hostname: keycloak
+    labels:
+      svc: keycloak
+    logging: *loki-logging
     networks:
       frontend:
         aliases:
@@ -127,6 +189,9 @@ services:
   kong:
     image: kong:3.8-alpine
     hostname: kong
+    labels:
+      svc: kong
+    logging: *loki-logging
     networks:
       frontend:
         aliases:
@@ -166,6 +231,9 @@ services:
       context: ../product-service
       dockerfile: Dockerfile
     hostname: product-service
+    labels:
+      svc: product-service
+    logging: *loki-logging
     networks:
       - backend
     ports:
@@ -190,6 +258,9 @@ services:
       context: ../order-service
       dockerfile: Dockerfile
     hostname: order-service
+    labels:
+      svc: order-service
+    logging: *loki-logging
     networks:
       - backend
     ports:
@@ -217,6 +288,9 @@ services:
       context: ../payment-service
       dockerfile: Dockerfile
     hostname: payment-service
+    labels:
+      svc: payment-service
+    logging: *loki-logging
     networks:
       - backend
     ports:
@@ -246,6 +320,9 @@ services:
       context: ../web
       dockerfile: Dockerfile
     hostname: web
+    labels:
+      svc: web
+    logging: *loki-logging
     networks:
       - backend
     ports:
@@ -268,3 +345,5 @@ services:
 
 volumes:
   postgres-data:
+  loki-data:
+  grafana-data:
