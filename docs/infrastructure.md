@@ -106,6 +106,31 @@ Kong and Keycloak sit on both networks — they are the entry points in producti
 - **Config:** `docker/kong-config.yml` mounted as declarative config
 - **Why DB-less?** One less database to run. Routes are static and change only when we add a new service — no need for dynamic Admin API usage.
 
+### loki & grafana (observability)
+- **loki** (`grafana/loki:3.4.2`) — central log store; ships on the `backend` network and
+  exposes the LogQL API on host port `3100`. Filesystem storage in the `loki-data` volume;
+  config at `docker/loki/config.yaml` (single-binary mode, ~14 day retention).
+- **grafana** (`grafana/grafana:11.5.2`) — the log UI. Host port `3000`, credentials
+  `admin` / `admin`, self-provisioning mounted from `docker/grafana/provisioning/`
+  (Loki datasource + the **Commerce — Logs** dashboard with an `svc` dropdown).
+  Data in the `grafana-data` volume.
+- **How logs get here:** the [`grafana/loki-docker-driver`](https://grafana.com/docs/loki/latest/send-data/docker-driver/)
+  Docker logging plugin (a one-time host install, see below) streams each container's
+  stdout/stderr to Loki. Every service that emits request/reply activity — the four apps
+  plus `kong` and `keycloak` — carries a `logging: driver: loki` block via the shared
+  `x-logging` anchor in compose. The `keep-file: "true"` option means the standard
+  `docker compose logs -f <service>` workflow keeps working unchanged.
+- **One-time plugin install** (already done on this machine):
+  `docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions`
+  `scripts/run-demo.sh docker` pre-flights this and fails with a clear message if missing.
+- **Why not promtail here?** The popular "promtail scrapes `docker logs`" pattern needs to
+  read `/var/lib/docker/containers`, which is not host-accessible on OrbStack (this project's
+  runtime). The logging plugin avoids that entirely — no mount, no scrape config, per-container
+  labels come straight from compose.
+- **Note on host mode:** `run-demo.sh` host mode runs the services as host processes writing
+  `./logs/*.log`; those don't flow into Loki (nothing is a container). Docker mode is the
+  supported demo path for consolidated logs.
+
 ### Application services (one container per service — separate log streams)
 Each app has its own image (built from source via the service's `Dockerfile`), its own
 log stream, and a readiness probe. They run on the `backend` network and reach
@@ -140,10 +165,32 @@ Postgres by container name (`postgres`), so no `localhost` wiring in containers.
 | `8089` | Schema Registry | HTTP | Host-accessible (avoid 8081 conflict) |
 | `8080` | Keycloak | HTTP (OIDC) | Host-accessible |
 | `8081` | Product Service | REST | Host-accessible (Spring Boot) |
+| `3000` | Grafana | HTTP | Consolidated log UI (Loki datasource auto-provisioned) |
+| `3100` | Loki | HTTP (LogQL) | Central log store — includes the `x-logging` shipper endpoint |
 | `8000` | Kong Proxy | HTTP/HTTPS | All client traffic enters here |
 | `8001` | Kong Admin API | HTTP | Debugging / plugin config |
 
 **Local dev note:** backend network is host-accessible for local development (services, DBs, Kafka). In production, add `internal: true` back to the backend network and route all traffic through Kong.
+
+## Consolidated Logging (Loki + Grafana)
+
+Open `http://localhost:3000` (admin/admin) → **Commerce — Logs** dashboard (service
+dropdown + live-tail log panel) or **Explore**.
+
+Each shipped container carries an `svc` label set by compose, so filtering is a
+one-label query. (Label names can't contain dots in LogQL — hence `svc`, not
+`platform.service`.) Logs are plain text today (Spring default, Go `log.Printf`), so
+severity filtering uses content matching; JSON/structured logging arrives with the correlation-ID work.
+
+| Goal | LogQL |
+|---|---|
+| One service | `{svc="order-service"}` |
+| A single flow across services | `{svc=~"order-service\|payment-service"}` |
+| Errors in a service | `{svc="order-service"} \|= "ERROR"` |
+| A transaction end-to-end (`txn_` is tagged by payment-service) | `{svc=~"order-service\|payment-service"} \|= "txn_"` |
+| Whole stack, last hour | `{svc=~".+"}` |
+
+Query API from the host: `curl "http://localhost:3100/loki/api/v1/query_range?query={svc=%22order-service%22}&start=<ns>&end=<ns>"`.
 
 ---
 

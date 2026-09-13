@@ -21,7 +21,7 @@ overview: [root README](../README.md).
 | **Frontend** | Keycloak sign-in (PKCE) replacing the mock identity | 🟡 | ⬜ |
 | **Frontend** | CI step to regenerate/verify Playwright visual baselines per platform | 🟡 | ⬜ |
 | **Events** | Kafka events (Phase 5) — OrderCreated/Cancelled, PaymentSucceeded/Failed, + DLQ | 🟡 | ⬜ |
-| **Observability** | Phase 6 — Jaeger tracing, Prometheus/Grafana, structured logs with correlation ID | 🟡 | ⬜ |
+| **Observability** | Phase 6 — Loki+Grafana log viewer (docker mode, ✅) · Jaeger tracing, Prometheus/Grafana metrics, structured logs w/ correlation ID (after gRPC Charge) | 🟡 | ⬜ |
 | **AI** | MCP server tools over existing APIs (Phase 7) + AI layer (Phase 8) | 🟡 | ⬜ |
 | **CI** | CI/CD, load tests, security pass (Phase 9) | 🟡 | ⬜ |
 | **Perf** | Redis read-through cache for product-service | 🔵 | ⬜ |
@@ -42,5 +42,6 @@ overview: [root README](../README.md).
 | web-frontend-phase-5 | `feat/web-frontend` | Frontend: React + Vite storefront `web/` — REST + GraphQL clients, catalog/cart/checkout/order-status pages, Playwright E2E journey + ARIA structure + visual-regression baselines, `docs/frontend-architecture.md` + `docs/testing-strategy.md` |
 | web-frontend-apnakart-admin | `ses_f81efd3deffepnpkdekguF5zqX` (continued) · `feat/web-frontend` | Phase 5-6: ApnaKart rebrand (INR / ₹, real product images, demo copy removed) · admin dashboard `/admin` (KPIs, products CRUD, orders view/cancel, payments view/refund via Vite `/v1` proxy) · backend admin APIs (product `imageUrl` + 12 ₹ seeds V3/V4, order `orders`+`orderStats` GraphQL, payment `ListPayments` REST gateway) · unit tests (order Mockito, payment Go) · E2E rebrand + `admin.spec.ts` + regenerated visual baselines · storefront `createOrder` forced INR · README/docs + `run-demo.sh` (admin link, aligned tooling banner, `stop`/`stop --keep-db`). Open new PR #4 |
 | infra-containerization + docs-restructure | `ses_f81efd3deffepnpkdekguF5zqX` (continued) · `feat/docker-containers` | Each service containerized (own Dockerfile, healthcheck, log stream) + `docker-compose` app services + `run-demo.sh docker` mode + `docs/infrastructure.md` deployment strategy + this README restructure (PR #5) |
+| observability-loki-grafana | `feat/observability-loki-grafana` | Log aggregation: Loki (central log store) + Grafana (UI w/ provisioned dashboard, `svc` label dropdown) via `loki` Docker logging plugin (`x-logging` anchor on apps + kong + keycloak, `svc` labels, `keep-file` preserves `docker compose logs`; plugin reaches Loki via host-published `localhost:3100`) · `run-demo.sh` pre-flight + banner · `docs/infrastructure.md` LogQL cheat-sheet. Log-viewer half of 🟡 Observability done in docker mode; tracing/metrics/correlation-ID deferred until after gRPC Charge |
 
 ---
