@@ -12,6 +12,10 @@ import (
 
 func UnaryLogging(logger *log.Logger) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		// Compose probes health every 15s — keep the log stream to business calls.
+		if info.FullMethod == "/grpc.health.v1.Health/Check" {
+			return handler(ctx, req)
+		}
 		start := time.Now()
 		resp, err := handler(ctx, req)
 		code := codes.Unknown
