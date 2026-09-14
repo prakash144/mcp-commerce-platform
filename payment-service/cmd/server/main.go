@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -15,6 +16,7 @@ import (
 	"github.com/commerce/payment-service/internal/handler"
 	"github.com/commerce/payment-service/internal/middleware"
 	"github.com/commerce/payment-service/internal/model"
+	"github.com/commerce/payment-service/internal/observability"
 	"github.com/commerce/payment-service/internal/repository"
 	"github.com/commerce/payment-service/internal/server"
 	"github.com/commerce/payment-service/internal/service"
@@ -28,68 +30,83 @@ import (
 )
 
 func main() {
-	logger := log.New(os.Stdout, "payment-service: ", log.LstdFlags)
+	sl := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	slog.SetDefault(sl)
+	// keep std logger for startup fatalf (gives a clear exit without verbosity)
+	log.SetOutput(os.Stdout)
+
 	cfg := config.Load()
 
 	db, err := gorm.Open(postgres.Open(cfg.DSN()), &gorm.Config{
 		Logger: gormlogger.Default.LogMode(gormlogger.Info),
 	})
 	if err != nil {
-		logger.Fatalf("failed to connect database: %v", err)
+		slog.Error("failed to connect database", "error", err)
+		os.Exit(1)
 	}
 	if err := db.AutoMigrate(&model.Payment{}, &model.Refund{}); err != nil {
-		logger.Fatalf("failed to migrate database: %v", err)
+		slog.Error("failed to migrate database", "error", err)
+		os.Exit(1)
 	}
-	logger.Println("database connected and migrated")
+	slog.Info("database connected and migrated")
 
 	repo := repository.NewPaymentRepository(db)
 	svc := service.NewPaymentService(repo)
 	h := handler.NewPaymentHandler(svc)
 
+	metrics := observability.NewMetrics()
+
 	srv := server.New(cfg.GRPCPort,
-		middleware.UnaryRecovery(logger),
-		middleware.UnaryLogging(logger),
+		metrics.UnaryInterceptor(),
+		middleware.UnaryRecovery(sl),
+		middleware.UnaryLogging(sl),
 	)
 	srv.Register(h)
 
 	go func() {
-		logger.Printf("gRPC server listening on :%d", cfg.GRPCPort)
+		slog.Info("gRPC server listening", "port", cfg.GRPCPort)
 		if err := srv.Serve(); err != nil {
-			logger.Fatalf("gRPC server error: %v", err)
+			slog.Error("gRPC server error", "error", err)
+			os.Exit(1)
 		}
 	}()
 
-	restServer := newRESTGateway(logger, cfg)
+	restServer := newRESTGateway(sl, cfg, metrics)
 	go func() {
-		logger.Printf("REST gateway + Swagger UI listening on :%d", cfg.RESTPort)
+		slog.Info("REST gateway listening", "port", cfg.RESTPort)
 		if err := restServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Fatalf("REST gateway error: %v", err)
+			slog.Error("REST gateway error", "error", err)
+			os.Exit(1)
 		}
 	}()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	logger.Println("shutting down gracefully")
+	slog.Info("shutting down gracefully")
 	srv.GracefulStop()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := restServer.Shutdown(ctx); err != nil {
-		logger.Printf("REST shutdown error: %v", err)
+		slog.Error("REST shutdown error", "error", err)
 	}
-	logger.Println("server stopped")
+	slog.Info("server stopped")
 }
 
-func newRESTGateway(logger *log.Logger, cfg *config.Config) *http.Server {
+func newRESTGateway(sl *slog.Logger, cfg *config.Config, metrics *observability.Metrics) *http.Server {
 	ctx := context.Background()
 
 	mux := runtime.NewServeMux()
 	gwAddr := fmt.Sprintf("localhost:%d", cfg.GRPCPort)
 	gwOpts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
 	if err := registerPaymentService(ctx, mux, gwAddr, gwOpts); err != nil {
-		logger.Fatalf("failed to register REST gateway: %v", err)
+		slog.Error("failed to register REST gateway", "error", err)
+		os.Exit(1)
 	}
 
+	mux.HandlePath("GET", "/metrics", func(w http.ResponseWriter, r *http.Request, _ map[string]string) {
+		metrics.Handler().ServeHTTP(w, r)
+	})
 	mux.HandlePath("GET", "/swagger.json", func(w http.ResponseWriter, r *http.Request, _ map[string]string) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(api.SwaggerJSON)
@@ -114,7 +131,7 @@ func allowCORS(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Correlation-Id")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
 			return

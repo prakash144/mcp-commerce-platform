@@ -3,7 +3,7 @@
     "list": []
   },
   "editable": true,
-  "graphTooltip": 0,
+  "graphTooltip": 1,
   "links": [],
   "panels": [
     {
@@ -11,17 +11,62 @@
         "type": "loki",
         "uid": "loki"
       },
-      "gridPos": {
-        "h": 12,
-        "w": 24,
-        "x": 0,
-        "y": 0
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "errors/min" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } },
+              { "id": "custom.fillOpacity", "value": 40 }
+            ]
+          }
+        ]
       },
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 0 },
+      "id": 10,
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "editorMode": "code",
+          "expr": "sum by (svc) (rate({svc=~\"${service:regex}\"}[1m]))",
+          "legendFormat": "{{svc}} lines/s",
+          "queryType": "range",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "editorMode": "code",
+          "expr": "sum by (svc) (rate({svc=~\"${service:regex}\"} | json | level=~\"(ERROR|FATAL)\"[1m]))",
+          "legendFormat": "{{svc}} errors/min",
+          "queryType": "range",
+          "refId": "B"
+        }
+      ],
+      "title": "Log volume & errors by service",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 6 },
       "id": 1,
       "options": {
         "dedupStrategy": "none",
         "enableLogDetails": true,
-        "prettifyLogMessage": false,
+        "prettifyLogMessage": true,
         "showCommonLabels": false,
         "showLabels": false,
         "showTime": true,
@@ -30,21 +75,51 @@
       },
       "targets": [
         {
-          "datasource": {
-            "type": "loki",
-            "uid": "loki"
-          },
+          "datasource": { "type": "loki", "uid": "loki" },
           "editorMode": "code",
-          "expr": "{svc=~\"${service:regex}\"}",
+          "expr": "{svc=~\"${service:regex}\"} | json | level=~\"$level\" |= \"$message\"",
           "queryType": "range",
           "refId": "A"
         }
       ],
-      "type": "logs",
-      "title": "Log stream"
+      "title": "Log stream (JSON parsed)",
+      "type": "logs"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 15 },
+      "id": 2,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": true,
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Ascending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "editorMode": "code",
+          "expr": "{svc=~\"order-service|payment-service|product-service\"} | json | level=~\"$level\" |= \"$message\" |= \"$correlationId\"",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "title": "Journey — single correlation ID",
+      "type": "logs"
     }
   ],
-  "refresh": "5s",
+  "refresh": "30s",
   "schemaVersion": 40,
   "tags": [
     "commerce"
@@ -54,12 +129,8 @@
       {
         "current": {
           "selected": true,
-          "text": [
-            "All"
-          ],
-          "value": [
-            "$__all"
-          ]
+          "text": ["All"],
+          "value": ["$__all"]
         },
         "definition": "label_values(svc)",
         "hide": 0,
@@ -73,6 +144,56 @@
         "skipUrlSync": false,
         "sort": 1,
         "type": "query"
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": "",
+          "value": ""
+        },
+        "hide": 0,
+        "label": "Correlation ID (paste)",
+        "name": "correlationId",
+        "options": [{ "selected": true, "text": "", "value": "" }],
+        "query": "",
+        "skipUrlSync": false,
+        "type": "textbox"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": ["All"],
+          "value": ["$__all"]
+        },
+        "hide": 0,
+        "includeAll": true,
+        "allValue": ".*",
+        "label": "Level",
+        "multi": true,
+        "name": "level",
+        "options": [
+          { "selected": false, "text": "DEBUG", "value": "DEBUG" },
+          { "selected": false, "text": "INFO", "value": "INFO" },
+          { "selected": false, "text": "WARNING", "value": "WARNING" },
+          { "selected": false, "text": "ERROR", "value": "ERROR" },
+          { "selected": false, "text": "FATAL", "value": "FATAL" }
+        ],
+        "query": "DEBUG,INFO,WARNING,ERROR,FATAL",
+        "type": "custom"
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": "",
+          "value": ""
+        },
+        "hide": 0,
+        "label": "Message contains",
+        "name": "message",
+        "options": [{ "selected": true, "text": "", "value": "" }],
+        "query": "",
+        "skipUrlSync": false,
+        "type": "textbox"
       }
     ]
   },
@@ -83,5 +204,5 @@
   "timezone": "browser",
   "title": "Commerce — Logs",
   "uid": "commerce-logs",
-  "version": 1
+  "version": 3
 }

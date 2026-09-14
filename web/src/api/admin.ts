@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { correlationId } from '../lib/trace'
 import { ApiError } from './products'
 import type { Order, OrderStats, Payment, PaymentPage, Product, ProductPage } from './types'
 
@@ -14,7 +15,11 @@ export interface ProductInput {
 async function send<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...init?.headers },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Correlation-Id': correlationId(),
+      ...init?.headers,
+    },
   })
   if (!res.ok) {
     const message =
@@ -35,7 +40,7 @@ interface GraphQLResponse<T> {
 async function gql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
   const res = await fetch('/graphql', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-Correlation-Id': correlationId() },
     body: JSON.stringify({ query, variables }),
   })
   const body = (await res.json()) as GraphQLResponse<T>

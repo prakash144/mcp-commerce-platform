@@ -3,6 +3,7 @@ import { Minus, Plus, RotateCcw, ShieldCheck, ShoppingBag, Trash2, Truck } from 
 import { ProductArt } from '../components/ProductArt'
 import { Button } from '../components/ui/button'
 import { formatMoney } from '../lib/utils'
+import { sendEvent } from '../lib/trace'
 import { useCart } from '../store/cart'
 
 export function CartPage() {
@@ -101,7 +102,12 @@ export function CartPage() {
             </span>
           </div>
         </div>
-        <Button asChild variant="accent" size="lg">
+        <Button
+          asChild
+          variant="accent"
+          size="lg"
+          onClick={() => sendEvent('cart.checkout', { itemCount: count(), total: total() })}
+        >
           <Link to="/checkout">Checkout</Link>
         </Button>
       </div>

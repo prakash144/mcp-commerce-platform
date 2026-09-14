@@ -1,12 +1,13 @@
 import { Link, useParams } from 'react-router-dom'
 import { ChevronRight, Minus, Plus, RotateCcw, ShieldCheck, ShoppingBag, Truck } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useProduct } from '../api/products'
 import { ProductArt } from '../components/ProductArt'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Skeleton } from '../components/ui/skeleton'
 import { formatMoney } from '../lib/utils'
+import { sendEvent } from '../lib/trace'
 import { useCart } from '../store/cart'
 
 export function ProductPage() {
@@ -14,6 +15,12 @@ export function ProductPage() {
   const { data: product, isLoading, isError, error } = useProduct(id)
   const addItem = useCart((s) => s.addItem)
   const [qty, setQty] = useState(1)
+
+  useEffect(() => {
+    if (product) {
+      sendEvent('product.view', { productId: product.id, productName: product.name })
+    }
+  }, [product])
 
   if (isLoading) {
     return (
@@ -130,7 +137,10 @@ export function ProductPage() {
               className="flex-1"
               variant={outOfStock ? 'outline' : 'accent'}
               disabled={outOfStock || !canBuy}
-              onClick={() => addItem(product, qty)}
+              onClick={() => {
+                addItem(product, qty)
+                sendEvent('cart.add', { productId: product.id, quantity: qty, price: product.price })
+              }}
             >
               <ShoppingBag className="h-4 w-4" />
               Add to cart — {formatMoney(product.price * qty)}

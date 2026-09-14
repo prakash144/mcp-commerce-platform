@@ -3,7 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 
 	"github.com/commerce/payment-service/internal/model"
 	"github.com/commerce/payment-service/internal/service"
@@ -102,7 +102,7 @@ func toGRPCError(err error) error {
 	case errors.Is(err, service.ErrIllegalState):
 		return status.Error(codes.FailedPrecondition, err.Error())
 	default:
-		log.Printf("internal error: %v", err)
+		slog.Error("internal error", "error", err)
 		return status.Error(codes.Internal, "internal error")
 	}
 }
