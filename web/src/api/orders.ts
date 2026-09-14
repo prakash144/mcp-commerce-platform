@@ -1,4 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
+import { correlationId } from '../lib/trace'
 import type { Order } from './types'
 
 interface CreateOrderInput {
@@ -17,7 +18,7 @@ const endpoint = '/graphql'
 async function gql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
   const res = await fetch(endpoint, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-Correlation-Id': correlationId() },
     body: JSON.stringify({ query, variables }),
   })
   const body = (await res.json()) as GraphQLResponse<T>

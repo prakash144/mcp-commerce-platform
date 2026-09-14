@@ -136,6 +136,8 @@ services:
     depends_on:
       loki:
         condition: service_healthy
+      prometheus:
+        condition: service_healthy
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
@@ -145,6 +147,24 @@ services:
       - grafana-data:/var/lib/grafana
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  prometheus:
+    image: prom/prometheus:v2.53.2
+    hostname: prometheus
+    networks:
+      - backend
+    ports:
+      - "9090:9090"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=30d
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9090/-/healthy >/dev/null || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -275,6 +295,7 @@ services:
       DB_USERNAME: commerce
       DB_PASSWORD: commerce_pass
       PRODUCT_SERVICE_URL: http://product-service:8081
+      PAYMENT_SERVICE_TARGET: payment-service:50051
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8082/actuator/health >/dev/null || exit 1"]
       interval: 15s

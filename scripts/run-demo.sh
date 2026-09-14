@@ -33,8 +33,8 @@ usage() {
 }
 
 COMPOSE_FILE="$ROOT/docker/docker-compose.yml"
-APP_SERVICES="product-service order-service payment-service web loki grafana"
-# `docker logs` follows only the app services — loki/grafana self-log too chatty
+APP_SERVICES="product-service order-service payment-service web loki prometheus grafana"
+# `docker logs` follows only the app services — loki/prometheus/grafana self-log too chatty
 LOG_SERVICES="product-service order-service payment-service web"
 
 docker_compose() { docker compose -f "$COMPOSE_FILE" "$@"; }
@@ -221,6 +221,7 @@ box_gap
 box_row "$(printf '  %-11s %-24s %s' 'Storefront' 'http://localhost:5173'      '(ApnaKart)')"
 box_row "$(printf '  %-11s %-24s %s' 'Admin'      'http://localhost:5173/admin' '(dashboard)')"
 box_row "$(printf '  %-11s %-24s %s' 'Grafana'    'http://localhost:3000'      '(admin/admin)')"
+box_row "$(printf '  %-11s %-24s %s' 'Prometheus' 'http://localhost:9090'      '(metrics)')"
 box_gap
 box_h
 box_row 'Service tooling:'

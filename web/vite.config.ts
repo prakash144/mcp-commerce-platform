@@ -16,6 +16,10 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
+      '/api/telemetry': {
+        target: order,
+        changeOrigin: true,
+      },
       '/api': {
         target: product,
         changeOrigin: true,

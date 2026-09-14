@@ -2,36 +2,78 @@ package middleware
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"time"
 
+	paymentv1 "github.com/commerce/payment-service/pkg/generated"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
-func UnaryLogging(logger *log.Logger) grpc.UnaryServerInterceptor {
+func UnaryLogging(logger *slog.Logger) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-		// Compose probes health every 15s — keep the log stream to business calls.
+		// Skip compose health probes — not business traffic.
 		if info.FullMethod == "/grpc.health.v1.Health/Check" {
 			return handler(ctx, req)
 		}
+
+		md, _ := metadata.FromIncomingContext(ctx)
+		correlationId := ""
+
+		// gRPC metadata keys are lowercase; grpc-gateway forwards headers as-is.
+		if vals := md.Get("correlation-id"); len(vals) > 0 {
+			correlationId = vals[0]
+		} else if vals := md.Get("x-correlation-id"); len(vals) > 0 {
+			correlationId = vals[0]
+		}
+
 		start := time.Now()
+
+		attrs := []any{"method", info.FullMethod, "correlationId", correlationId}
+
+		// Enrich Charge calls with request-level context.
+		if chargeReq, ok := req.(*paymentv1.ChargeRequest); ok {
+			attrs = append(attrs,
+				"idempotencyKey", chargeReq.GetIdempotencyKey(),
+				"amountMinor", chargeReq.GetAmountMinor(),
+				"currency", chargeReq.GetCurrency(),
+				"orderId", chargeReq.GetOrderId(),
+			)
+		}
+
 		resp, err := handler(ctx, req)
+
 		code := codes.Unknown
 		if st, ok := status.FromError(err); ok {
 			code = st.Code()
 		}
-		logger.Printf("method=%s code=%s duration=%s", info.FullMethod, code, time.Since(start))
+		attrs = append(attrs, "code", code.String(), "duration_ms", time.Since(start).Milliseconds())
+
+		if code != codes.OK {
+			logger.Warn("grpc.access", attrs...)
+		} else {
+			logger.Info("grpc.access", attrs...)
+		}
+
+		// Return correlation in trailers so the caller can verify end-to-end.
+		if correlationId != "" {
+			grpc.SetTrailer(ctx, metadata.Pairs("correlation-id", correlationId))
+		}
+
 		return resp, err
 	}
 }
 
-func UnaryRecovery(logger *log.Logger) grpc.UnaryServerInterceptor {
+func UnaryRecovery(logger *slog.Logger) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
 		defer func() {
 			if r := recover(); r != nil {
-				logger.Printf("panic recovered in %s: %v", info.FullMethod, r)
+				logger.Error("panic recovered",
+					"method", info.FullMethod,
+					"error", r,
+				)
 				err = status.Error(codes.Internal, "internal error")
 			}
 		}()

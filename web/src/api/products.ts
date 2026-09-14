@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { correlationId } from '../lib/trace'
 import type { Product, ProductPage } from './types'
 
 export type SortKey = '' | 'price-asc' | 'price-desc'
@@ -18,7 +19,7 @@ export class ApiError extends Error {
 }
 
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(path)
+  const res = await fetch(path, { headers: { 'X-Correlation-Id': correlationId() } })
   if (!res.ok) {
     const message =
       res.status === 404

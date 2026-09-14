@@ -163,7 +163,7 @@ mcp-server/
 | 3 | Order Service (GraphQL) | Schema published, resolvers + DataLoader, calls Payment via gRPC |
 | 4 | Payment Service (gRPC) | Proto defined, 5 RPCs implemented, interceptors for auth/logging/retry |
 | 5 | Event-Driven Architecture | All 7 events flowing through Kafka, idempotent consumers |
-| 6 | Observability | Tracing spans visible end-to-end in Jaeger, dashboards in Grafana |
+| 5 | Resilience + Observability | 🔶 **done (partial):** Resilience4j retry/breaker on `Charge`, structured JSON logs → Loki, Prometheus metrics → Grafana dashboards. **Pending:** distributed tracing (Jaeger/Tempo), chaos drill in CI |
 | 7 | MCP Server | 7 tools implemented, callable from Claude Desktop / claude.ai |
 | 8 | AI Layer | Agent using Anthropic SDK + tool calling against MCP server |
 | 9 | Production Readiness | CI/CD pipeline, integration + load tests, rate limiting, security review |
@@ -224,13 +224,9 @@ mcp-server/
 
 ## 5. Milestone Checklist (copy into your issue tracker)
 
-- [ ] Phase 0: Repo scaffolded + ADR-001 (protocol-per-service decision) written
-- [ ] Phase 1: `docker compose up` brings up Postgres, Redis, Kafka, all 4 services (empty)
-- [ ] Phase 2: product-service full CRUD + search live, OpenAPI published
-- [ ] Phase 3: order-service GraphQL schema + resolvers + gRPC call to payment-service
-- [ ] Phase 4: payment-service 5 RPCs implemented with interceptors
-- [ ] Phase 5: All 7 Kafka events flowing, DLQ configured
-- [ ] Phase 6: Tracing (Jaeger), metrics (Prometheus/Grafana), logs (ELK/Loki) working end-to-end
+- [x] Phase 0–4: foundation → product (REST) → order (GraphQL) → payment (gRPC) complete
+- [ ] Phase 5: Resilience (retry ×3 + circuit breaker on Charge) done; Kafka events still open
+- [ ] Phase 6: Logs (Loki) + Metrics (Prometheus/Grafana) done; **tracing (Jaeger/Tempo) pending**
 - [ ] Phase 7: mcp-server exposes 7 tools, tested from Claude Desktop
 - [ ] Phase 8: Agent built with Anthropic SDK using MCP tools + memory
 - [ ] Phase 9: CI/CD, load tests, rate limiting, security pass complete

@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Multi-stage: Maven build → minimal Java 21 JRE runtime, runs as non-root user.
 
-FROM maven:3.9-eclipse-temurin-21-alpine AS build
+FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /workspace
 COPY . .
 RUN --mount=type=cache,target=/root/.m2 mvn -q -DskipTests package

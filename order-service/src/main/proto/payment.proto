@@ -1,0 +1,150 @@
+syntax = "proto3";
+
+package payment.v1;
+
+import "google/api/annotations.proto";
+
+option go_package = "github.com/commerce/payment-service/pkg/generated;paymentv1";
+
+option java_package = "com.commerce.payment.v1";
+option java_multiple_files = true;
+
+enum PaymentStatus {
+  PAYMENT_STATUS_UNSPECIFIED = 0;
+  PAYMENT_STATUS_PENDING = 1;
+  PAYMENT_STATUS_AUTHORIZED = 2;
+  PAYMENT_STATUS_CAPTURED = 3;
+  PAYMENT_STATUS_REFUNDED = 4;
+  PAYMENT_STATUS_PARTIALLY_REFUNDED = 5;
+  PAYMENT_STATUS_VOIDED = 6;
+  PAYMENT_STATUS_FAILED = 7;
+}
+
+enum PaymentMethod {
+  PAYMENT_METHOD_UNSPECIFIED = 0;
+  PAYMENT_METHOD_CARD = 1;
+  PAYMENT_METHOD_BANK_TRANSFER = 2;
+  PAYMENT_METHOD_WALLET = 3;
+}
+
+message Payment {
+  string id = 1;
+  string order_id = 2;
+  string customer_id = 3;
+  int64 amount_minor = 4;
+  string currency = 5;
+  PaymentStatus status = 6;
+  PaymentMethod method = 7;
+  string created_at = 8;
+  string updated_at = 9;
+  string failure_reason = 10;
+}
+
+message ChargeRequest {
+  string idempotency_key = 1;
+  string order_id = 2;
+  string customer_id = 3;
+  int64 amount_minor = 4;
+  string currency = 5;
+  PaymentMethod method = 6;
+}
+
+message ChargeResponse {
+  Payment payment = 1;
+  string idempotency_key = 2;
+}
+
+message Refund {
+  string id = 1;
+  string payment_id = 2;
+  int64 amount_minor = 3;
+  string currency = 4;
+  string reason = 5;
+  string created_at = 6;
+}
+
+message RefundRequest {
+  string payment_id = 1;
+  string idempotency_key = 2;
+  int64 amount_minor = 3;
+  string reason = 4;
+}
+
+message RefundResponse {
+  Payment payment = 1;
+  Refund refund = 2;
+}
+
+message CaptureRequest {
+  string payment_id = 1;
+  int64 amount_minor = 2;
+}
+
+message CaptureResponse {
+  Payment payment = 1;
+}
+
+message VoidRequest {
+  string payment_id = 1;
+  string reason = 2;
+}
+
+message VoidResponse {
+  Payment payment = 1;
+}
+
+message GetPaymentRequest {
+  string id = 1;
+}
+
+message GetPaymentResponse {
+  Payment payment = 1;
+}
+
+message ListPaymentsRequest {
+  int64 page = 1;
+  int64 page_size = 2;
+  string status = 3;
+}
+
+message ListPaymentsResponse {
+  repeated Payment payments = 1;
+  int64 total_count = 2;
+}
+
+service PaymentService {
+  rpc Charge(ChargeRequest) returns (ChargeResponse) {
+    option (google.api.http) = {
+      post: "/v1/payments"
+      body: "*"
+    };
+  }
+  rpc Refund(RefundRequest) returns (RefundResponse) {
+    option (google.api.http) = {
+      post: "/v1/payments/{payment_id}/refund"
+      body: "*"
+    };
+  }
+  rpc Capture(CaptureRequest) returns (CaptureResponse) {
+    option (google.api.http) = {
+      post: "/v1/payments/{payment_id}/capture"
+      body: "*"
+    };
+  }
+  rpc Void(VoidRequest) returns (VoidResponse) {
+    option (google.api.http) = {
+      post: "/v1/payments/{payment_id}/void"
+      body: "*"
+    };
+  }
+  rpc GetPayment(GetPaymentRequest) returns (GetPaymentResponse) {
+    option (google.api.http) = {
+      get: "/v1/payments/{id}"
+    };
+  }
+  rpc ListPayments(ListPaymentsRequest) returns (ListPaymentsResponse) {
+    option (google.api.http) = {
+      get: "/v1/payments"
+    };
+  }
+}

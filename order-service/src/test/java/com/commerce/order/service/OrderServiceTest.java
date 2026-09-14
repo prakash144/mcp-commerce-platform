@@ -7,6 +7,7 @@ import com.commerce.order.entity.Order;
 import com.commerce.order.entity.OrderItem;
 import com.commerce.order.entity.OrderStatus;
 import com.commerce.order.mapper.OrderMapper;
+import com.commerce.order.observability.OrderMetrics;
 import com.commerce.order.repository.OrderItemRepository;
 import com.commerce.order.repository.OrderRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,13 +46,15 @@ class OrderServiceTest {
     private PaymentClient paymentClient;
     @Mock
     private CustomerContext customerContext;
+    @Mock
+    private OrderMetrics orderMetrics;
 
     private OrderService orderService;
 
     @BeforeEach
     void setUp() {
         orderService = new OrderService(orderRepository, orderItemRepository, mapper,
-                productClient, paymentClient, customerContext);
+                productClient, paymentClient, customerContext, orderMetrics);
     }
 
     private Order order(OrderStatus status, BigDecimal amount) {

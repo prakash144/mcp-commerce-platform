@@ -5,6 +5,7 @@ import { useCreateOrder } from '../api/orders'
 import { ProductArt } from '../components/ProductArt'
 import { Button } from '../components/ui/button'
 import { formatMoney } from '../lib/utils'
+import { sendEvent } from '../lib/trace'
 import { useCart } from '../store/cart'
 
 export function CheckoutPage() {
@@ -23,6 +24,7 @@ export function CheckoutPage() {
 
   const placeOrder = async () => {
     setError(null)
+    sendEvent('checkout.request', { itemCount: count(), total: total() })
     try {
       const order = await createOrder.mutateAsync({
         items: items.map(({ product, quantity }) => ({
@@ -31,6 +33,7 @@ export function CheckoutPage() {
         })),
       })
       clear()
+      sendEvent('order.placed', { orderId: order.id, status: order.status })
       navigate(`/orders/${order.id}`, { replace: true })
     } catch (err) {
       const e = err as Error & { code?: string }
@@ -41,6 +44,7 @@ export function CheckoutPage() {
         INVALID_QUANTITY: 'Item quantity is out of range.',
         INVALID_CURRENCY: 'Invalid currency.',
       }
+      sendEvent('order.failed', { code })
       setError(messages[code] ?? `Could not place your order. Please try again.`)
     }
   }

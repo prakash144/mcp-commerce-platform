@@ -9,3 +9,9 @@ datasources:
     isDefault: true
     jsonData:
       maxLines: 1000
+      derivedFields:
+        - name: __level__
+          matcherType: regex
+          matcherRegex: '"level":"([^"]+)"'
+          url: ''
+          datasourceUid: loki
