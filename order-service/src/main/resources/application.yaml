@@ -1,6 +1,11 @@
 server:
   port: 8082
 
+logging:
+  structured:
+    format:
+      console: logstash
+
 spring:
   application:
     name: order-service
@@ -32,15 +37,21 @@ spring:
 commerce:
   product-service:
     base-url: ${PRODUCT_SERVICE_URL:http://localhost:8081}
+  payment-service:
+    target: ${PAYMENT_SERVICE_TARGET:localhost:50051}
   order:
     # Identity fallback used when the gateway (X-User-Id header) is absent — local dev via curl.
-    default-customer-id: ${DEFAULT_CUSTOMER_ID:customer-demo}
+    default-customer-id: ${DEFAULT_CUSTOMER_ID:22222222-2222-2222-2222-222222222222}
 
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        include: health,info,metrics,prometheus
   endpoint:
     health:
       show-details: always
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true

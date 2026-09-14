@@ -15,9 +15,12 @@ import com.commerce.order.entity.OrderStatus;
 import com.commerce.order.exception.OrderNotFoundException;
 import com.commerce.order.exception.OrderValidationException;
 import com.commerce.order.mapper.OrderMapper;
+import com.commerce.order.observability.OrderMetrics;
 import com.commerce.order.repository.OrderItemRepository;
 import com.commerce.order.repository.OrderRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -37,6 +40,7 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 @Transactional
+@Slf4j
 public class OrderService {
 
     private final OrderRepository orderRepository;
@@ -45,12 +49,18 @@ public class OrderService {
     private final ProductClient productClient;
     private final PaymentClient paymentClient;
     private final CustomerContext customerContext;
+    private final OrderMetrics orderMetrics;
 
     @Value("${commerce.order.default-customer-id}")
     private String defaultCustomerId;
 
     public OrderOutput createOrder(CreateOrderInput input) {
         List<OrderItemInput> items = validateAndNormalize(input);
+
+        log.info("evt=checkout.request customerId={} itemCount={} currency={}",
+                input.getCustomerId() != null ? input.getCustomerId() : "default",
+                items.size(),
+                input.getCurrency() != null ? input.getCurrency() : "INR");
 
         Map<UUID, ProductClient.ProductDetail> products = productClient.fetchByIds(
                         items.stream().map(OrderItemInput::getProductId).toList())
@@ -78,13 +88,48 @@ public class OrderService {
         order.setTotalAmount(total);
 
         Order saved = orderRepository.save(order);
+        MDC.put("orderId", saved.getId().toString());
+        log.info("evt=order.persisted orderId={} total={} status=PENDING", saved.getId(), total);
 
-        PaymentClient.PaymentResult result = paymentClient.charge(
-                new PaymentClient.ChargeRequest(saved.getId(), saved.getTotalAmount(), saved.getCurrency()));
-        if (result.status() == PaymentClient.PaymentStatus.SUCCESS) {
-            saved.setStatus(OrderStatus.CONFIRMED);
-            saved = orderRepository.save(saved);
+        String idempotencyKey = UUID.randomUUID().toString();
+        MDC.put("idempotencyKey", idempotencyKey);
+        MDC.put("amountMinor", String.valueOf(total.movePointRight(2).longValueExact()));
+        log.info("evt=order.charge.start orderId={} idempotencyKey={} amountMinor={} currency={}",
+                saved.getId(), idempotencyKey, total.movePointRight(2).longValueExact(), saved.getCurrency());
+
+        PaymentClient.PaymentResult result;
+        try {
+            result = paymentClient.charge(
+                    new PaymentClient.ChargeRequest(
+                            saved.getId(),
+                            saved.getCustomerId(),
+                            saved.getTotalAmount(),
+                            saved.getCurrency(),
+                            idempotencyKey,
+                            PaymentClient.PaymentMethod.CARD
+                    )
+            );
+            MDC.put("paymentStatus", result.status().name());
+
+            if (result.status() == PaymentClient.PaymentStatus.SUCCESS) {
+                saved.setStatus(OrderStatus.CONFIRMED);
+                saved = orderRepository.save(saved);
+                log.info("evt=order.confirmed orderId={} paymentId={}", saved.getId(), result.transactionId());
+                orderMetrics.orderCreated("CONFIRMED");
+                orderMetrics.revenue(total.movePointRight(2).longValueExact());
+                orderMetrics.paymentCharge("captured");
+            } else {
+                log.warn("evt=order.payment.failed orderId={} paymentStatus={}", saved.getId(), result.status());
+                orderMetrics.orderCreated("PENDING");
+                orderMetrics.paymentCharge("failed");
+            }
+        } finally {
+            MDC.remove("orderId");
+            MDC.remove("idempotencyKey");
+            MDC.remove("amountMinor");
+            MDC.remove("paymentStatus");
         }
+
         return mapper.toOutput(saved);
     }
 
