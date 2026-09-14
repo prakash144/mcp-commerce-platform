@@ -163,7 +163,7 @@ mcp-server/
 | 3 | Order Service (GraphQL) | Schema published, resolvers + DataLoader, calls Payment via gRPC |
 | 4 | Payment Service (gRPC) | Proto defined, 5 RPCs implemented, interceptors for auth/logging/retry |
 | 5 | Event-Driven Architecture | All 7 events flowing through Kafka, idempotent consumers |
-| 5 | Resilience + Observability | 🔶 **done (partial):** Resilience4j retry/breaker on `Charge`, structured JSON logs → Loki, Prometheus metrics → Grafana dashboards. **Pending:** distributed tracing (Jaeger/Tempo), chaos drill in CI |
+| 5 | Resilience + Observability | 🔶 **done (partial):** Resilience4j retry/breaker on `Charge`, structured JSON logs → Loki, Prometheus metrics → Grafana dashboards, persisted idempotency keys + automated PENDING-order retry (backoff/attempt cap → FAILED). **Pending:** distributed tracing (Jaeger/Tempo), chaos drill in CI |
 | 7 | MCP Server | 7 tools implemented, callable from Claude Desktop / claude.ai |
 | 8 | AI Layer | Agent using Anthropic SDK + tool calling against MCP server |
 | 9 | Production Readiness | CI/CD pipeline, integration + load tests, rate limiting, security review |
@@ -225,8 +225,8 @@ mcp-server/
 ## 5. Milestone Checklist (copy into your issue tracker)
 
 - [x] Phase 0–4: foundation → product (REST) → order (GraphQL) → payment (gRPC) complete
-- [ ] Phase 5: Resilience (retry ×3 + circuit breaker on Charge) done; Kafka events still open
-- [ ] Phase 6: Logs (Loki) + Metrics (Prometheus/Grafana) done; **tracing (Jaeger/Tempo) pending**
+- [x] Phase 5 (resilience+idempotency): retry ×3 + circuit breaker on Charge done; **idempotency keys persisted on orders + automated PENDING retry** done (charge.attempts, next_retry_at, FAILED terminal state); **Kafka events still open**
+- [x] Phase 6: Logs (Loki) + Metrics (Prometheus/Grafana) done; **tracing (Jaeger/Tempo) pending**
 - [ ] Phase 7: mcp-server exposes 7 tools, tested from Claude Desktop
 - [ ] Phase 8: Agent built with Anthropic SDK using MCP tools + memory
 - [ ] Phase 9: CI/CD, load tests, rate limiting, security pass complete

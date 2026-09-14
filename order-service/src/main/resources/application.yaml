@@ -42,6 +42,19 @@ commerce:
   order:
     # Identity fallback used when the gateway (X-User-Id header) is absent — local dev via curl.
     default-customer-id: ${DEFAULT_CUSTOMER_ID:22222222-2222-2222-2222-222222222222}
+    retry:
+      # How often the PENDING-order retry job polls for due orders.
+      poll-interval: ${ORDER_RETRY_POLL_INTERVAL:15s}
+      # Delay before the first poll after startup.
+      initial-delay: ${ORDER_RETRY_INITIAL_DELAY:15s}
+      # Max orders picked up per poll.
+      poll-batch-size: ${ORDER_RETRY_POLL_BATCH:20}
+      # Exponential retry backoff after each failed charge attempt.
+      initial-backoff: ${ORDER_RETRY_INITIAL_BACKOFF:30s}
+      # Ceiling for the exponential backoff.
+      max-backoff: ${ORDER_RETRY_MAX_BACKOFF:15m}
+      # Total charge attempts before a PENDING order is marked FAILED.
+      max-attempts: ${ORDER_RETRY_MAX_ATTEMPTS:5}
 
 management:
   endpoints:

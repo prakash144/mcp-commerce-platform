@@ -16,6 +16,8 @@ public class OrderOutput {
     private OrderStatus status;
     private BigDecimal totalAmount;
     private String currency;
+    private String paymentId;
+    private Integer chargeAttempts;
     private Instant createdAt;
     private Instant updatedAt;
 }

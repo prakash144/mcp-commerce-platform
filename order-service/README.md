@@ -42,13 +42,13 @@
 │  OrderRepository        │  │  - ProductClient / RestProductClient   │
 │  OrderItemRepository    │  │     → GET :8081/api/v1/products/{id}   │
 │                         │  │     (parallel, fail-fast)              │
-│  Entities: Order,       │  │  - PaymentClient / StubPaymentClient   │
-│  OrderItem (snapshot)   │  │     → in-memory stub (Phase 4: gRPC)   │
+│  Entities: Order,       │  │  - PaymentClient / GrpcPaymentClient   │
+│  OrderItem (snapshot)   │  │     → gRPC payment-service :50051      │
 └─────────────┬───────────┘  └────────────────────────────────────────┘
               │
               ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  PostgreSQL (orderdb)     Flyway V1__create_orders_tables.sql       │
+│  PostgreSQL (orderdb)    Flyway V1 + V2 (retry/idempotency cols)     │
 └─────────────────────────────────────────────────────────────────────┘
 
   GraphQL flow per query:
@@ -67,8 +67,8 @@ Top-down, matching the product-service convention (data first, GraphQL last).
 
 | # | Layer | File (under `src/main/java/com/commerce/order/`) | What it does |
 |---|---|---|---|
-| 1 | Config | `resources/application.yaml` | Port 8082, `orderdb` datasource, Flyway, GraphiQL, product-service URL |
-| 2 | Migration | `resources/db/migration/V1__create_orders_tables.sql` | `orders` + `order_items` tables (UUID PKs, item price snapshots) |
+| 1 | Config | `resources/application.yaml` | Port 8082, `orderdb` datasource, Flyway, GraphiQL, product-service URL, retry-job tuning (`commerce.order.retry.*`) |
+| 2 | Migration | `resources/db/migration/V1__create_orders_tables.sql`, `V2__add_charge_idempotency.sql` | `orders` + `order_items`; V2 adds `idempotency_key` (unique), `payment_id`, `charge_attempts`, `last_charge_error`, `next_retry_at` |
 | 3 | Entity | `entity/Order.java`, `OrderItem.java`, `OrderStatus.java` | JPA entities; `status` enum; `totalAmount` + per-item `lineTotal` computed |
 | 4 | Repository | `repository/OrderRepository.java`, `OrderItemRepository.java` | `findByCustomerId(String, Pageable)`, `findByOrderIdIn(Set<UUID>)` |
 | 5 | DTOs | `dto/CreateOrderInput.java`, `OrderItemInput.java`, `OrderOutput.java`, `OrderItemOutput.java`, `OrderPageOutput.java` | GraphQL request/response shapes |
@@ -76,7 +76,8 @@ Top-down, matching the product-service convention (data first, GraphQL last).
 | 7 | Wiring | `config/GraphQLConfig.java` | `RuntimeWiringConfigurer` registers the scalars; depth 10 / complexity 50 guards |
 | 8 | Mapper | `mapper/OrderMapper.java` | MapStruct Entity ↔ DTO (`toOutput`, `toItemOutput`) |
 | 9 | Errors | `exception/OrderNotFoundException.java`, `OrderValidationException.java`, `OrderGraphQLExceptionHandler.java` | typed codes via `extensions.code` |
-| 10 | Clients | `client/ProductClient.java`, `RestProductClient.java`, `ClientConfig.java`, `PaymentClient.java`, `StubPaymentClient.java` | product REST fetch (virtual threads), payment stub |
+| 10 | Clients | `client/ProductClient.java`, `RestProductClient.java`, `ClientConfig.java`, `PaymentClient.java`, `GrpcPaymentClient.java`, `CorrelationInterceptor.java` | product REST fetch (virtual threads), gRPC payment with retry+breaker (`ResilienceConfig`) |
+| 11 | Job | `job/PendingOrderRetryJob.java` | `@Scheduled` poll of PENDING orders past `next_retry_at`, reusing the persisted idempotency key |
 | 11 | Service | `service/OrderService.java` | Business logic — create/cancel/query |
 | 12 | DataLoader | `dataloader/OrderItemDataLoaderConfig.java` | Batched `items` loading for Order |
 | 13 | Resolvers | `resolver/OrderQueryResolver.java`, `OrderMutationResolver.java` | GraphQL entry points |
@@ -93,11 +94,11 @@ Top-down, matching the product-service convention (data first, GraphQL last).
 | `createOrder` | `createOrder(input: CreateOrderInput!): Order!` | Validate → fetch products → PENDING → payment → CONFIRMED |
 | `cancelOrder` | `cancelOrder(id: ID!): Order!` | Set CANCELLED (idempotency guard) |
 
-**Scalars:** `BigDecimal` (money), `DateTime` (ISO-8601). **Enums:** `OrderStatus { PENDING CONFIRMED CANCELLED }`.
+**Scalars:** `BigDecimal` (money), `DateTime` (ISO-8601). **Enums:** `OrderStatus { PENDING CONFIRMED CANCELLED FAILED }`.
 
 ---
 
-## Internal Flow: createOrder
+## Internal Flow: createOrder (exactly-once)
 
 ```
 Client → POST /graphql  { mutation createOrder(input: {items: [...]}) }
@@ -109,11 +110,32 @@ OrderService.createOrder()
   │                                  INVALID_QUANTITY, INVALID_CURRENCY
   ├─▶ ProductClient.fetchByIds(...)  → product-service :8081 (parallel virtual threads)
   │        x→ PRODUCT_VALIDATION_FAILED (fail-fast, typed) if product-service is down
-  │  ② build Order PENDING + snapshots (productName, unitPrice from product-service)
-  │  ③ orderRepository.save(order)   one INSERT orders + N INSERT order_items
-  │  ④ paymentClient.charge(...)     StubPaymentClient → SUCCESS (Phase 4: gRPC)
-  │  ⑤ saved.setStatus(CONFIRMED)    → update orders
+  │  ② build Order PENDING          + random idempotencyKey
+  │  ③ [TX-1: COMMIT] save PENDING + idempotency_key   ← durable BEFORE any payment call
+  │  ④ chargeAndSettle(orderId)
+  │        attempt = chargeAttempts + 1
+  │        charge → GrpcPaymentClient( persisted idempotencyKey )
+  │                  retry ×3 ▸ breaker ▸ 3s deadline per attempt
+  │        outcome recorded in [TX-2: COMMIT]:
+  │          SUCCESS → CONFIRMED + payment_id
+  │          FAILED  → FAILED (declined, terminal)
+  │          throws  → PENDING + attempt++, last_charge_error,
+  │                    next_retry_at = now + exp backoff  (rethrow to client)
+  │                    attempts ≥ max → FAILED (terminal)
   └─▶ OrderMapper.toOutput(saved)    → Order JSON (items resolved later, see below)
+```
+
+Why the tx split matters: TX-1 commits the retry-intent before the charge call; TX-2
+commits the outcome after it. The payment RPC is never inside a DB transaction, so a
+timeout/breaker trip can't roll back the durable PENDING+key record — the same key is
+reused on every attempt (payment-service dedupes by key ⇒ exactly-once, no double charge).
+
+## Internal Flow: PENDING-order automated retry
+
+```
+@Scheduled(15s) PendingOrderRetryJob
+  → findPendingDue(now) : PENDING ∧ attempts>0 ∧ next_retry_at ≤ now  (batch 20)
+  → orderService.retryPending(id) → chargeAndSettle (same path as ④)
 ```
 
 ## Internal Flow: reading `Order.items` (the N+1 fix)
@@ -154,6 +176,9 @@ GraphQL has a single error envelope; typed codes ride in `extensions`. Examples 
 | `EMPTY_ORDER`, `INVALID_ITEM`, `INVALID_QUANTITY`, `INVALID_CURRENCY` | `createOrder` input validation |
 | `PRODUCT_VALIDATION_FAILED` | product-service unreachable or product missing |
 | `ORDER_ALREADY_CANCELLED` | cancelling a cancelled order |
+| `ORDER_NOT_CANCELLABLE` | cancelling a `CONFIRMED` / `FAILED` order |
+| `PAYMENT_UNAVAILABLE` | breaker open or retries exhausted — order stays PENDING and is retried by the job |
+| `PAYMENT_REJECTED` | permanent rejection (e.g. invalid argument) from payment-service |
 | `INTERNAL_ERROR` | catch-all (logged now) |
 
 Note: `createOrder: Order!` (non-null) → on error, graphql-java also bubbles a
@@ -169,6 +194,9 @@ rises through non-null fields. Correct, just noisy — leave it.
 - **Field resolver + DataLoader for `Order.items`** — prevents the classic N+1. Items are never stored on `OrderOutput`; they are fetched in one batched query (see above).
 - **Custom scalars via `RuntimeWiringConfigurer`** — defining `GraphQLScalarType` beans is NOT enough (Spring GraphQL does not auto-register them). They must be wired in `GraphQLConfig.orderScalarWiringConfigurer`.
 - **Price/name snapshots** — item rows carry `product_name` + `unit_price` captured at order time; later product changes don't rewrite history. `lineTotal` & `totalAmount` are computed, not persisted.
+- **Persisted idempotency + exactly-once charge** — the order's `idempotency_key` is written in a committed tx *before* the payment call and reused on every retry; payment-service dedupes by that key, so a charge can never apply twice even if an attempt is ambiguous.
+- **Duel transaction boundaries around the payment RPC** — TX-1 commits retry intent (PENDING+key), TX-2 commits the outcome; the RPC itself has no outer DB tx, so failures can't roll persistence back. Attempt outcomes are committed even when the charge throws.
+- **Automated PENDING retry** — `PendingOrderRetryJob` polls `status=PENDING ∧ next_retry_at≤now` with exponential backoff (`initial-backoff`, `max-backoff`) and a `max-attempts` cap → terminal `FAILED`. Tune via `commerce.order.retry.*`.
 - **ID scalar → UUID** — GraphQL `ID!` coerces to String; Spring's `GraphQlArgumentBinder` + `ConversionService` converts it to a `UUID` param automatically.
 - **Boot 4.1 fact: no auto-configured `RestClient.Builder` bean** — the old REST `RestClientAutoConfiguration` is gone from the modularized starter. `ClientConfig` builds the client directly (`RestClient.builder()`).
 - **`@Argument` has no `defaultValue` in Spring GraphQL 2.0.4** — schema-side defaults (`first: Int = 20`) are applied by graphql-java before the resolver runs.
@@ -266,12 +294,9 @@ docker compose -f docker/docker-compose.yml down -v    # wipe data
 
 ## TODO
 
-- [ ] Resolve `int first/offset` schema-inspection warning (use nullable `Integer` + a service default) — purely cosmetic today
-- [ ] Unit tests: OrderService, OrderQuery/OrderMutationResolver (GraphQlTester), OrderScalars, OrderMapper
-- [ ] Integration tests: Testcontainers (Postgres + Flyway migration)
-- [ ] Real payment client against payment-service gRPC (Phase 4)
+- [ ] Integration tests: Testcontainers (Postgres + Flyway migration, retry job against real DB)
 - [ ] Product-client resilient variant: retry/backoff instead of fail-fast
-- [ ] Input coalescing at the gateway (`POST /graphql` on Kong) — Phase 6
+- [ ] `next_retry_at` ordering page-wise retry fanout when multiple instances run the job (SKIP LOCKED)
 
 ---
 
@@ -286,8 +311,7 @@ docker compose -f docker/docker-compose.yml down -v    # wipe data
 | Typed errors via `extensions.code` | ✅ Done | `OrderGraphQLExceptionHandler` |
 | product-service REST integration + price snapshots | ✅ Done | Parallel virtual-thread fetch (`RestProductClient`) |
 | GraphiQL | ✅ Done | `http://localhost:8082/graphiql` |
-| Unit tests | ❌ Pending | ≥80% coverage (Phase 3 requirement) |
+| Unit tests | ✅ Done | OrderService, GrpcPaymentClient, ResilienceConfig, PendingOrderRetryJob |
 | Integration tests | ❌ Pending | Testcontainers (Postgres + Flyway) |
-| Real payment gRPC client | ❌ Pending | Currently `StubPaymentClient`; contract comes from payment-service (Phase 4) |
-| Fix nullable-arg warning (`int first/offset`) | ❌ Pending | Cosmetic — schema defaults apply |
+| Real payment gRPC client | ✅ Done | `GrpcPaymentClient` (retry×3 + breaker + 3s deadline) |
 | Product-client resilience (retry/backoff) | ❌ Pending | Fail-fast today by design |

@@ -18,7 +18,7 @@ export interface ProductPage {
   totalPages: number
 }
 
-export type OrderStatus = 'PENDING' | 'CONFIRMED' | 'CANCELLED'
+export type OrderStatus = 'PENDING' | 'CONFIRMED' | 'CANCELLED' | 'FAILED'
 
 export interface OrderItem {
   id: string
@@ -35,6 +35,8 @@ export interface Order {
   status: OrderStatus
   totalAmount: number
   currency: string
+  paymentId?: string | null
+  chargeAttempts?: number
   items: OrderItem[]
   createdAt: string
   updatedAt: string

@@ -39,6 +39,22 @@ public class Order {
     @Column(name = "total_amount", nullable = false, precision = 12, scale = 2)
     private BigDecimal totalAmount;
 
+    @Column(name = "idempotency_key", length = 64, unique = true)
+    private String idempotencyKey;
+
+    @Column(name = "payment_id", length = 64)
+    private String paymentId;
+
+    @Column(name = "charge_attempts", nullable = false)
+    @Builder.Default
+    private Integer chargeAttempts = 0;
+
+    @Column(name = "last_charge_error", length = 255)
+    private String lastChargeError;
+
+    @Column(name = "next_retry_at")
+    private Instant nextRetryAt;
+
     @Column(nullable = false, length = 3)
     @Builder.Default
     private String currency = "USD";

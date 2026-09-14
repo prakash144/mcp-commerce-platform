@@ -24,6 +24,8 @@ type Order {
     status: OrderStatus!
     totalAmount: BigDecimal!
     currency: String!
+    paymentId: String
+    chargeAttempts: Int!
     items: [OrderItem!]!
     createdAt: DateTime!
     updatedAt: DateTime!
@@ -49,6 +51,7 @@ enum OrderStatus {
     PENDING
     CONFIRMED
     CANCELLED
+    FAILED
 }
 
 input OrderItemInput {

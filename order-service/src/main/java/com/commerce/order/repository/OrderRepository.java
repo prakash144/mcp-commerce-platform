@@ -9,12 +9,23 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 public interface OrderRepository extends JpaRepository<Order, UUID> {
     Page<Order> findByCustomerId(String customerId, Pageable pageable);
 
     Page<Order> findByStatus(OrderStatus status, Pageable pageable);
+
+    @Query("""
+            select o from Order o
+            where o.status = 'PENDING'
+              and o.chargeAttempts > 0
+              and o.nextRetryAt <= :now
+            order by o.nextRetryAt
+            """)
+    List<Order> findPendingDue(@Param("now") Instant now, Pageable pageable);
 
     @Query("select count(o) from Order o")
     long countOrders();

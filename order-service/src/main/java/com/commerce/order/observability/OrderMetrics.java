@@ -23,4 +23,8 @@ public class OrderMetrics {
     public void paymentCharge(String outcome) {
         registry.counter("commerce_payment_charge_total", "outcome", outcome).increment();
     }
+
+    public void chargeAttempt(String outcome) {
+        registry.counter("commerce_charge_attempts_total", "outcome", outcome).increment();
+    }
 }
