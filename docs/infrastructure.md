@@ -60,13 +60,15 @@ Kong and Keycloak sit on both networks — they are the entry points in producti
 
 | File | Purpose |
 |---|---|
-| `docker/docker-compose.yml` | All container definitions (infra + app services), networks, volumes |
-| `docker/kong-config.yml` | Kong declarative config (DB-less mode) — routes added per phase |
-| `docker/scripts/init-multiple-dbs.sh` | Creates the databases at Postgres first boot |
-| `product-service/Dockerfile` | product-service image (Maven build → Java 21 JRE, non-root) |
-| `order-service/Dockerfile` | order-service image (Maven build → Java 21 JRE, non-root) |
-| `payment-service/Dockerfile` | payment-service image (Go build → Alpine, non-root, + grpc-health-probe) |
-| `web/Dockerfile` | storefront image (Node 22 + Vite dev server) |
+| `docker/docker-compose.yml` | All container definitions, networks, volumes |
+| `docker/prometheus/prometheus.yml` | Prometheus scrape targets (all 3 services) |
+| `docker/grafana/provisioning/datasources/` | Loki + Prometheus datasource auto-provisioning |
+| `docker/grafana/provisioning/dashboards/` | Commerce — Logs + Metrics dashboards |
+| `docker/loki/config.yaml` | Loki config (single-binary, ~14 day retention) |
+| `docker/kong-config.yml` | Kong declarative config (DB-less mode) |
+| `product-service/Dockerfile` | product-service image |
+| `order-service/Dockerfile` | order-service image |
+| `payment-service/Dockerfile` | payment-service image |
 
 ---
 
@@ -106,30 +108,32 @@ Kong and Keycloak sit on both networks — they are the entry points in producti
 - **Config:** `docker/kong-config.yml` mounted as declarative config
 - **Why DB-less?** One less database to run. Routes are static and change only when we add a new service — no need for dynamic Admin API usage.
 
-### loki & grafana (observability)
-- **loki** (`grafana/loki:3.4.2`) — central log store; ships on the `backend` network and
-  exposes the LogQL API on host port `3100`. Filesystem storage in the `loki-data` volume;
-  config at `docker/loki/config.yaml` (single-binary mode, ~14 day retention).
-- **grafana** (`grafana/grafana:11.5.2`) — the log UI. Host port `3000`, credentials
-  `admin` / `admin`, self-provisioning mounted from `docker/grafana/provisioning/`
-  (Loki datasource + the **Commerce — Logs** dashboard with an `svc` dropdown).
-  Data in the `grafana-data` volume.
-- **How logs get here:** the [`grafana/loki-docker-driver`](https://grafana.com/docs/loki/latest/send-data/docker-driver/)
-  Docker logging plugin (a one-time host install, see below) streams each container's
-  stdout/stderr to Loki. Every service that emits request/reply activity — the four apps
-  plus `kong` and `keycloak` — carries a `logging: driver: loki` block via the shared
-  `x-logging` anchor in compose. The `keep-file: "true"` option means the standard
-  `docker compose logs -f <service>` workflow keeps working unchanged.
-- **One-time plugin install** (already done on this machine):
-  `docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions`
-  `scripts/run-demo.sh docker` pre-flights this and fails with a clear message if missing.
-- **Why not promtail here?** The popular "promtail scrapes `docker logs`" pattern needs to
-  read `/var/lib/docker/containers`, which is not host-accessible on OrbStack (this project's
-  runtime). The logging plugin avoids that entirely — no mount, no scrape config, per-container
-  labels come straight from compose.
-- **Note on host mode:** `run-demo.sh` host mode runs the services as host processes writing
-  `./logs/*.log`; those don't flow into Loki (nothing is a container). Docker mode is the
-  supported demo path for consolidated logs.
+### loki, prometheus & grafana (observability)
+
+**All in one table:**
+
+| Component | Image | Port | Purpose |
+|---|---|---|---|
+| Loki | `grafana/loki:3.4.2` | `3100` | Central log store (LogQL API) |
+| Prometheus | `prom/prometheus:v2.53.2` | `9090` | Metrics store (scrapes all services) |
+| Grafana | `grafana/grafana:11.5.2` | `3000` | Dashboards (logs + metrics) |
+
+**Grafana dashboards** (admin/admin):
+
+| Dashboard | Data source | What it shows |
+|---|---|---|
+| Commerce — Logs | Loki | Service logs, JSON parsed, correlation ID filter |
+| Commerce — Metrics | Prometheus | RED (RPS, errors, latency), JVM/Go runtime, business KPIs, circuit breaker |
+
+**How logs reach Loki:** The `grafana/loki-docker-driver` plugin (one-time host install) streams each container's stdout to Loki. Each service carries an `svc` label via the `x-logging` anchor. `keep-file: true` preserves `docker compose logs` behavior.
+
+**How metrics reach Prometheus:** Each service exposes a metrics endpoint (scrape config in `docker/prometheus/prometheus.yml`):
+
+| Service | Metrics endpoint | Format |
+|---|---|---|
+| product-service | `/actuator/prometheus` | Micrometer (JVM, HTTP, `commerce_*`) |
+| order-service | `/actuator/prometheus` | Micrometer (JVM, HTTP, `commerce_*`, circuit breaker) |
+| payment-service | `/metrics` | Prometheus client (`grpc_*`, Go runtime) |
 
 ### Application services (one container per service — separate log streams)
 Each app has its own image (built from source via the service's `Dockerfile`), its own
@@ -159,38 +163,35 @@ Postgres by container name (`postgres`), so no `localhost` wiring in containers.
 
 | Port | Service | Protocol | Notes |
 |---|---|---|---|
-| `5432` | Postgres | PostgreSQL | Host-accessible for debugging (DataGrip, psql) |
-| `6379` | Redis | Redis | Host-accessible |
-| `9092` | Kafka | Kafka protocol | Host-accessible |
-| `8089` | Schema Registry | HTTP | Host-accessible (avoid 8081 conflict) |
-| `8080` | Keycloak | HTTP (OIDC) | Host-accessible |
-| `8081` | Product Service | REST | Host-accessible (Spring Boot) |
-| `3000` | Grafana | HTTP | Consolidated log UI (Loki datasource auto-provisioned) |
-| `3100` | Loki | HTTP (LogQL) | Central log store — includes the `x-logging` shipper endpoint |
-| `8000` | Kong Proxy | HTTP/HTTPS | All client traffic enters here |
-| `8001` | Kong Admin API | HTTP | Debugging / plugin config |
+| `5432` | Postgres | PostgreSQL | Single instance, 4 databases |
+| `50051` | Payment Service | gRPC | |
+| `6379` | Redis | Redis | |
+| `8000` | Kong Proxy | HTTP | Gateway entry point |
+| `8001` | Kong Admin API | HTTP | Debugging |
+| `8080` | Keycloak | HTTP | OIDC auth (admin/admin) |
+| `8081` | Product Service | REST | |
+| `8082` | Order Service | GraphQL | |
+| `8090` | Payment REST | HTTP | grpc-gateway + Swagger |
+| `9092` | Kafka | Kafka | |
+| `9090` | **Prometheus** | HTTP | Metrics store |
+| `3000` | **Grafana** | HTTP | Dashboards (admin/admin) |
+| `3100` | **Loki** | HTTP | Log store |
 
 **Local dev note:** backend network is host-accessible for local development (services, DBs, Kafka). In production, add `internal: true` back to the backend network and route all traffic through Kong.
 
-## Consolidated Logging (Loki + Grafana)
+## Observability — Logs + Metrics
 
-Open `http://localhost:3000` (admin/admin) → **Commerce — Logs** dashboard (service
-dropdown + live-tail log panel) or **Explore**.
+### Logs (Loki)
 
-Each shipped container carries an `svc` label set by compose, so filtering is a
-one-label query. (Label names can't contain dots in LogQL — hence `svc`, not
-`platform.service`.) Logs are plain text today (Spring default, Go `log.Printf`), so
-severity filtering uses content matching; JSON/structured logging arrives with the correlation-ID work.
+Open `http://localhost:3000` → **Commerce — Logs** dashboard (service dropdown + correlation ID filter).
+
+Logs are structured JSON (logstash format). MDC fields (`correlationId`, `orderId`, `evt`) are top-level JSON keys, parseable in Grafana via `| json`.
 
 | Goal | LogQL |
 |---|---|
 | One service | `{svc="order-service"}` |
-| A single flow across services | `{svc=~"order-service\|payment-service"}` |
-| Errors in a service | `{svc="order-service"} \|= "ERROR"` |
-| A transaction end-to-end (`txn_` is tagged by payment-service) | `{svc=~"order-service\|payment-service"} \|= "txn_"` |
-| Whole stack, last hour | `{svc=~".+"}` |
-
-Query API from the host: `curl "http://localhost:3100/loki/api/v1/query_range?query={svc=%22order-service%22}&start=<ns>&end=<ns>"`.
+| Journey trace | `{svc=~"order-service\|payment-service"} \| json \| correlationId="xxx"` |
+| Errors only | `{svc="order-service"} \| json \| level="ERROR"` |
 
 ---
 
