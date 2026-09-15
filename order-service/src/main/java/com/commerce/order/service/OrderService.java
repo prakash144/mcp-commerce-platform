@@ -5,7 +5,6 @@ import com.commerce.order.client.ProductClient;
 import com.commerce.order.config.CustomerContext;
 import com.commerce.order.dto.CreateOrderInput;
 import com.commerce.order.dto.OrderItemInput;
-import com.commerce.order.dto.OrderItemOutput;
 import com.commerce.order.dto.OrderOutput;
 import com.commerce.order.dto.OrderPageOutput;
 import com.commerce.order.dto.OrderStatsOutput;
@@ -28,8 +27,11 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -39,7 +41,6 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
-@Transactional
 @Slf4j
 public class OrderService {
 
@@ -50,9 +51,19 @@ public class OrderService {
     private final PaymentClient paymentClient;
     private final CustomerContext customerContext;
     private final OrderMetrics orderMetrics;
+    private final TransactionTemplate tx;
 
     @Value("${commerce.order.default-customer-id}")
     private String defaultCustomerId;
+
+    @Value("${commerce.order.retry.initial-backoff:30s}")
+    private Duration initialBackoff;
+
+    @Value("${commerce.order.retry.max-backoff:15m}")
+    private Duration maxBackoff;
+
+    @Value("${commerce.order.retry.max-attempts:5}")
+    private int maxAttempts;
 
     public OrderOutput createOrder(CreateOrderInput input) {
         List<OrderItemInput> items = validateAndNormalize(input);
@@ -67,10 +78,38 @@ public class OrderService {
                 .stream()
                 .collect(Collectors.toMap(ProductClient.ProductDetail::id, Function.identity()));
 
-        Order order = Order.builder()
+        String idempotencyKey = UUID.randomUUID().toString();
+        Order saved = persistPendingOrder(input, items, products, idempotencyKey);
+
+        MDC.put("orderId", saved.getId().toString());
+        MDC.put("idempotencyKey", idempotencyKey);
+        try {
+            chargeAndSettle(saved.getId());
+        } finally {
+            MDC.remove("orderId");
+            MDC.remove("idempotencyKey");
+            MDC.remove("amountMinor");
+            MDC.remove("paymentStatus");
+        }
+
+        return mapper.toOutput(saved);
+    }
+
+    /**
+     * Persists the order in PENDING state together with its idempotency key in a
+     * committed transaction, before any payment traffic. Every subsequent charge
+     * attempt (synchronous or from the retry job) reuses this exact key, so the
+     * payment service dedupes replays and an order can never be charged twice.
+     */
+    private Order persistPendingOrder(CreateOrderInput input, List<OrderItemInput> items,
+                                      Map<UUID, ProductClient.ProductDetail> products,
+                                      String idempotencyKey) {
+        Order base = Order.builder()
                 .customerId(resolveCustomer(input.getCustomerId()))
                 .currency(normalizeCurrency(input.getCurrency()))
                 .status(OrderStatus.PENDING)
+                .idempotencyKey(idempotencyKey)
+                .chargeAttempts(0)
                 .build();
 
         BigDecimal total = BigDecimal.ZERO;
@@ -82,47 +121,72 @@ public class OrderService {
                     .unitPrice(detail.price())
                     .quantity(item.getQuantity())
                     .build();
-            order.addItem(orderItem);
+            base.addItem(orderItem);
             total = total.add(detail.price().multiply(BigDecimal.valueOf(item.getQuantity())));
         }
-        order.setTotalAmount(total);
+        base.setTotalAmount(total);
+        BigDecimal finalTotal = total;
 
-        Order saved = orderRepository.save(order);
-        MDC.put("orderId", saved.getId().toString());
-        log.info("evt=order.persisted orderId={} total={} status=PENDING", saved.getId(), total);
+        return tx.execute(status -> {
+            Order saved = orderRepository.save(base);
+            log.info("evt=order.persisted orderId={} total={} status=PENDING idempotencyKey={}",
+                    saved.getId(), finalTotal, idempotencyKey);
+            return saved;
+        });
+    }
 
-        String idempotencyKey = UUID.randomUUID().toString();
-        MDC.put("idempotencyKey", idempotencyKey);
-        MDC.put("amountMinor", String.valueOf(total.movePointRight(2).longValueExact()));
-        log.info("evt=order.charge.start orderId={} idempotencyKey={} amountMinor={} currency={}",
-                saved.getId(), idempotencyKey, total.movePointRight(2).longValueExact(), saved.getCurrency());
+    /**
+     * The single idempotent settlement path shared by createOrder and the retry
+     * job. Reads the persisted idempotency key, charges, and records the outcome
+     * in its own committed transaction. The payment call itself is never inside a
+     * DB transaction, so a transient charge failure updates PENDING state (next
+     * retry time) without rolling back the retry intent.
+     */
+    private void chargeAndSettle(UUID orderId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new OrderNotFoundException(orderId));
+
+        if (order.getStatus() != OrderStatus.PENDING) {
+            log.info("evt=order.charge.skipped orderId={} status={}", orderId, order.getStatus());
+            return;
+        }
+
+        MDC.put("orderId", order.getId().toString());
+        MDC.put("idempotencyKey", order.getIdempotencyKey());
+        MDC.put("amountMinor", String.valueOf(order.getTotalAmount().movePointRight(2).longValueExact()));
+        int attempt = order.getChargeAttempts() + 1;
+        boolean isRetry = order.getChargeAttempts() > 0;
+
+        log.info("evt=order.charge.start orderId={} attempt={} idempotencyKey={} amountMinor={} currency={}",
+                order.getId(), attempt, order.getIdempotencyKey(),
+                order.getTotalAmount().movePointRight(2).longValueExact(), order.getCurrency());
 
         PaymentClient.PaymentResult result;
         try {
             result = paymentClient.charge(
                     new PaymentClient.ChargeRequest(
-                            saved.getId(),
-                            saved.getCustomerId(),
-                            saved.getTotalAmount(),
-                            saved.getCurrency(),
-                            idempotencyKey,
+                            order.getId(),
+                            order.getCustomerId(),
+                            order.getTotalAmount(),
+                            order.getCurrency(),
+                            order.getIdempotencyKey(),
                             PaymentClient.PaymentMethod.CARD
                     )
             );
-            MDC.put("paymentStatus", result.status().name());
-
-            if (result.status() == PaymentClient.PaymentStatus.SUCCESS) {
-                saved.setStatus(OrderStatus.CONFIRMED);
-                saved = orderRepository.save(saved);
-                log.info("evt=order.confirmed orderId={} paymentId={}", saved.getId(), result.transactionId());
-                orderMetrics.orderCreated("CONFIRMED");
-                orderMetrics.revenue(total.movePointRight(2).longValueExact());
-                orderMetrics.paymentCharge("captured");
+        } catch (RuntimeException ex) {
+            orderMetrics.chargeAttempt("rescheduled");
+            if (attempt >= maxAttempts) {
+                markTerminal(order, OrderStatus.FAILED, attempt, message(ex), null);
+                orderMetrics.chargeAttempt("exhausted");
+                log.warn("evt=order.charge.exhausted orderId={} attempts={} error={}",
+                        order.getId(), attempt, message(ex));
             } else {
-                log.warn("evt=order.payment.failed orderId={} paymentStatus={}", saved.getId(), result.status());
-                orderMetrics.orderCreated("PENDING");
-                orderMetrics.paymentCharge("failed");
+                Instant nextRetry = Instant.now().plus(backoff(attempt));
+                recordChargeFailure(order, attempt, message(ex), nextRetry);
+                log.warn("evt=order.charge.retryable orderId={} attempt={} nextRetryAt={} error={}",
+                        order.getId(), attempt, nextRetry, message(ex));
             }
+            throw ex;
         } finally {
             MDC.remove("orderId");
             MDC.remove("idempotencyKey");
@@ -130,15 +194,102 @@ public class OrderService {
             MDC.remove("paymentStatus");
         }
 
-        return mapper.toOutput(saved);
+        MDC.put("paymentStatus", result.status().name());
+        if (result.status() == PaymentClient.PaymentStatus.SUCCESS) {
+            markSettled(order, attempt, result.transactionId());
+            orderMetrics.chargeAttempt(isRetry ? "captured_retried" : "captured");
+            orderMetrics.orderCreated("CONFIRMED");
+            orderMetrics.revenue(order.getTotalAmount().movePointRight(2).longValueExact());
+            orderMetrics.paymentCharge("captured");
+            log.info("evt=order.confirmed orderId={} attempt={} paymentId={}",
+                    order.getId(), attempt, result.transactionId());
+        } else {
+            markTerminal(order, OrderStatus.FAILED, attempt,
+                    "payment declined: " + result.status(), null);
+            orderMetrics.chargeAttempt("declined");
+            orderMetrics.orderCreated("FAILED");
+            orderMetrics.paymentCharge("failed");
+            log.warn("evt=order.payment.failed orderId={} attempt={} paymentStatus={}",
+                    order.getId(), attempt, result.status());
+        }
     }
 
+    public OrderOutput retryPending(UUID orderId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new OrderNotFoundException(orderId));
+        if (order.getStatus() != OrderStatus.PENDING) {
+            return mapper.toOutput(order);
+        }
+        chargeAndSettle(orderId);
+        return mapper.toOutput(orderRepository.findById(orderId).orElse(order));
+    }
+
+    private void markSettled(Order order, int attempt, String paymentId) {
+        tx.executeWithoutResult(status -> {
+            Order current = orderRepository.findById(order.getId()).orElse(order);
+            current.setStatus(OrderStatus.CONFIRMED);
+            current.setPaymentId(paymentId);
+            current.setChargeAttempts(attempt);
+            current.setLastChargeError(null);
+            current.setNextRetryAt(null);
+            orderRepository.save(current);
+        });
+    }
+
+    private void recordChargeFailure(Order order, int attempt, String error, Instant nextRetryAt) {
+        tx.executeWithoutResult(status -> {
+            Order current = orderRepository.findById(order.getId()).orElse(order);
+            current.setChargeAttempts(attempt);
+            current.setLastChargeError(truncate(error));
+            current.setNextRetryAt(nextRetryAt);
+            orderRepository.save(current);
+        });
+    }
+
+    private void markTerminal(Order order, OrderStatus terminal, int attempt, String error, String paymentId) {
+        tx.executeWithoutResult(status -> {
+            Order current = orderRepository.findById(order.getId()).orElse(order);
+            current.setStatus(terminal);
+            current.setChargeAttempts(attempt);
+            current.setLastChargeError(truncate(error));
+            current.setNextRetryAt(null);
+            current.setPaymentId(paymentId);
+            orderRepository.save(current);
+        });
+    }
+
+    private Duration backoff(int attempt) {
+        long base = initialBackoff.toMillis();
+        long cap = maxBackoff.toMillis();
+        if (attempt - 1 >= 31) {
+            return Duration.ofMillis(cap);
+        }
+        long exp = base * (1L << (attempt - 1));
+        return Duration.ofMillis(Math.min(exp, cap));
+    }
+
+    private String message(RuntimeException ex) {
+        return ex.getClass().getSimpleName() + ": " + ex.getMessage();
+    }
+
+    private String truncate(String s) {
+        if (s == null || s.length() <= 255) {
+            return s;
+        }
+        return s.substring(0, 255);
+    }
+
+    @Transactional
     public OrderOutput cancelOrder(UUID id) {
         Order order = orderRepository.findById(id)
                 .orElseThrow(() -> new OrderNotFoundException(id));
         if (order.getStatus() == OrderStatus.CANCELLED) {
             throw new OrderValidationException("ORDER_ALREADY_CANCELLED",
                     "Order " + id + " is already cancelled");
+        }
+        if (order.getStatus() == OrderStatus.CONFIRMED || order.getStatus() == OrderStatus.FAILED) {
+            throw new OrderValidationException("ORDER_NOT_CANCELLABLE",
+                    "Order " + id + " is " + order.getStatus() + " and cannot be cancelled");
         }
         order.setStatus(OrderStatus.CANCELLED);
         return mapper.toOutput(orderRepository.save(order));

@@ -9,6 +9,7 @@ const STATUS_LABELS: Record<string, string> = {
   CONFIRMED: 'Confirmed',
   PENDING: 'Pending payment',
   CANCELLED: 'Cancelled',
+  FAILED: 'Payment failed',
 }
 
 export function OrderStatusPage() {

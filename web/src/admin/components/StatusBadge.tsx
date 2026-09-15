@@ -5,6 +5,7 @@ const ORDER_VARIANTS: Record<string, NonNullable<BadgeProps['variant']>> = {
   PENDING: 'warning',
   CONFIRMED: 'success',
   CANCELLED: 'destructive',
+  FAILED: 'destructive',
 }
 
 const PAYMENT_VARIANTS: Record<string, NonNullable<BadgeProps['variant']>> = {

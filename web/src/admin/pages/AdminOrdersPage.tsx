@@ -8,7 +8,7 @@ import type { Order } from '../../api/types'
 import { formatDate, formatMoney } from '../../lib/utils'
 import { OrderStatusBadge } from '../components/StatusBadge'
 
-const FILTERS = ['ALL', 'PENDING', 'CONFIRMED', 'CANCELLED'] as const
+const FILTERS = ['ALL', 'PENDING', 'CONFIRMED', 'CANCELLED', 'FAILED'] as const
 const PAGE_SIZE = 20
 
 function OrderDetailModal({ order, onClose }: { order: Order; onClose: () => void }) {
