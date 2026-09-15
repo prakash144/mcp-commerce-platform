@@ -1,6 +1,6 @@
 # Testing Strategy — Commerce Platform
 
-Status: **MVP + M3 resilience + observability (metrics/logs)**
+Status: **MVP + M3/M4 resilience + observability (metrics/logs) + concurrency & security strategy (ADR-002)**
 Last updated: 2026-09-15
 
 ---
@@ -26,6 +26,11 @@ Last updated: 2026-09-15
 | Metrics verification | Prometheus + Grafana dashboards | Watch RED + business + breaker metrics change during drills (§6.6) |
 | Component/unit (future) | Vitest + React Testing Library | Cart logic, form validation |
 | Per-service integration | Testcontainers (backend) | Product/order service contracts — separate from UI |
+| Concurrency/race | Deterministic latch-seam tests + `@Tag("stress")` profile (§8) | Exactly-once settlement, SKIP LOCKED, createOrder dedupe |
+| SAST | Semgrep/CodeQL | Java, Go, TS on every PR |
+| DAST (nightly) | OWASP ZAP + `graphql-cop`/InQL | Authz bypass, injection on the running stack |
+| Supply chain | OWASP dependency-check, `govulncheck`, `npm audit`, Trivy | Vulnerable deps + image scan |
+| Secrets | `gitleaks` (incl. history) | Committed credentials |
 
 ## 3. What is automated vs manual
 
@@ -44,10 +49,14 @@ Last updated: 2026-09-15
 ### Backend unit tests
 - `payment-service`: `go test ./...` — idempotency, state machine, validation, and
   `ListPayments` filter/pagination (service level with a fake repo).
-- `order-service`: `mvn test` — `OrderServiceTest` (Mockito): `getOrders`
-  (all vs by status/pagination), `getOrderStats` aggregation.
-- **To add (M5, §7):** a gRPC in-process-server test proving the retry-collision
-  case — "a retried Charge lands exactly one payment".
+- `order-service`: `mvn test` (23) — `OrderServiceTest` (Mockito + stateful in-memory
+  store): idempotency key persisted **before** any charge, key reused across attempts
+  (exactly-once), declined → terminal `FAILED`, transient/permanent failure → backoff
+  reschedule, attempt cap → `FAILED`, cancel rules; `PendingOrderRetryJobTest`
+  (skip semantics, batch, cap); `GrpcPaymentClientTest` (retry/breaker/deadline over an
+  in-process server); `ResilienceConfigTest`.
+- **To add (M5/S, §8–9):** deterministic race tests (latch seam in `chargeAndSettle`),
+  Testcontainers SKIP LOCKED / createOrder-dedupe tests, authz negative tests.
 
 ### Manual (human judgment — do NOT automate these)
 - Motion/animation feel, spacing polish, brand consistency.
@@ -225,3 +234,34 @@ Open Grafana → **Commerce — Metrics** dashboard, or query Prometheus directl
 | Buf contract test for order↔payment proto | Both sides drift independently today | `buf` lint + diff between the two proto copies |
 | Chaos step | Automate Drill C in CI once per PR | docker compose `pause` on payment during an E2E run |
 | Path-filtered pipelines | A payment-only PR shouldn't rebuild/UI-test everything | GitHub Actions per-service path filters |
+---
+
+## 8. Concurrency & consistency testing (Phase 5.5, ADR-002)
+
+Principle: **deterministic first, stress only as opt-in** — no flaky race tests in fast CI.
+
+| Level | Test | Assertion |
+|---|---|---|
+| Unit (deterministic) | Latch seam in `chargeAndSettle` between read & TX-2 write; fire 2 threads | Exactly one TX-2 commit; one Charge RPC with the same key; final `CONFIRMED`, `charge_attempts=1` |
+| Unit (deterministic) | 2 parallel `save`s on same `Order` (`@Version`) | One `OptimisticLockException` |
+| Integration (Testcontainers) | 2 instances query `findPendingDue` | Disjoint PENDING sets (SKIP LOCKED) |
+| Integration (Testcontainers) | 20 concurrent `createOrder` with same `idempotencyKey` | 1 order created; 19 return it; unique index rejects dupes |
+| Stress (`@Tag("stress")`, nightly) | 100-thread bursts + flaky payment sim (~20% UNAVAILABLE) | Metrics reconcile: `sum(commerce_charge_attempts_total) == commerce_orders_total + exhausted` — **metrics are the oracle** |
+| Chaos soak | Kill payment-service mid-soak | Guard + job settle every order exactly once, no duplicates |
+
+Run: `mvn test` (fast, deterministic) on every PR; `mvn test -Dgroups=stress` + soak on a
+nightly schedule. Full DoD checklist in ADR-002.
+
+## 9. Security testing (Phase 6.5, ADR-002)
+
+Shift-left: fast negative tests in PR CI, DAST/supply-chain nightly. Threat model + full
+matrix in ADR-002.
+
+| Layer | Every PR | Nightly |
+|---|---|---|
+| Authn/z negative tests — no token→401, wrong role→403, spoofed `X-User-Id` stripped, user A blocked from user B's orders | ✅ | ✅ |
+| SAST (Semgrep/CodeQL) — Java, Go, TS | ✅ | ✅ |
+| Supply chain — OWASP dependency-check, `govulncheck`, `npm audit`, Trivy (cached) | ✅ | ✅ |
+| Secrets — `gitleaks` + `git log` history scan | ✅ | ✅ |
+| DAST — OWASP ZAP baseline + `graphql-cop`/InQL on the compose stack | — | ✅ |
+| MCP guardrails — adversarial prompt-injection harness, tool allow-list, token-scope verify | when Phase 7 lands | ✅ |

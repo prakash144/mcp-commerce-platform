@@ -176,19 +176,20 @@ cd web && npm run dev
 | 6 | [`docs/frontend-architecture.md`](./docs/frontend-architecture.md) | React + Vite, API integration, state management |
 | 7 | [`docs/testing-strategy.md`](./docs/testing-strategy.md) | E2E tests, resilience drills, how to verify edge cases |
 | 8 | [`docs/infrastructure.md`](./docs/infrastructure.md) | Docker, compose, healthchecks, deployment |
-| 9 | [`docs/dev-tracking.md`](./docs/dev-tracking.md) | Session history, todos |
+| 9 | [`docs/adr-002-concurrency-and-security.md`](./docs/adr-002-concurrency-and-security.md) | Concurrency = hardening milestone; security threat model + both test plans |
+| 10 | [`docs/dev-tracking.md`](./docs/dev-tracking.md) | Session history, todos |
 
 ---
 
 ## Roadmap
 
 | Phase | Focus | Status |
-|---|---|---|
-| 0–1 | Planning + Foundation | ✅ |
-| 2 | Product Service (REST) | ✅ |
-| 3 | Order Service (GraphQL + gRPC Charge) | ✅ |
-| 4 | Payment Service (gRPC) | ✅ |
-| 5 | Observability (Loki + Prometheus + Grafana) | ✅ |
-| 6 | Event-Driven (Kafka) | ⬜ |
+|---|---|---|---|
+| 0–4 | Planning + Foundation → Product/Order/Payment services | ✅ |
+| 6 | Resilience + Observability (retry ×3, breaker, idempotent PENDING retry, Loki/Prometheus/Grafana) | 🔶 (**tracing pending**) |
+| 5 | Event-Driven (Kafka) | ⬜ |
+| 5.5 | Concurrency & Consistency (ADR-002) | ⬜ |
+| 6.5 | Security — Gateway + Auth + AI guardrails (ADR-002) | ⬜ |
 | 7 | MCP Server (AI tools) | ⬜ |
-| 8 | API Gateway + Auth (Kong + Keycloak) | ⬜ |
+| 8 | AI Layer (agent) | ⬜ |
+| 9 | Production Readiness | ⬜ |

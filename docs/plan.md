@@ -163,7 +163,9 @@ mcp-server/
 | 3 | Order Service (GraphQL) | Schema published, resolvers + DataLoader, calls Payment via gRPC |
 | 4 | Payment Service (gRPC) | Proto defined, 5 RPCs implemented, interceptors for auth/logging/retry |
 | 5 | Event-Driven Architecture | All 7 events flowing through Kafka, idempotent consumers |
-| 5 | Resilience + Observability | 🔶 **done (partial):** Resilience4j retry/breaker on `Charge`, structured JSON logs → Loki, Prometheus metrics → Grafana dashboards, persisted idempotency keys + automated PENDING-order retry (backoff/attempt cap → FAILED). **Pending:** distributed tracing (Jaeger/Tempo), chaos drill in CI |
+| 6 | Resilience + Observability | 🔶 **done (partial):** Resilience4j retry/breaker on `Charge`, structured JSON logs → Loki, Prometheus metrics → Grafana dashboards, persisted idempotency keys + automated PENDING-order retry (backoff/attempt cap → FAILED). **Pending:** distributed tracing (Jaeger/Tempo), chaos drill in CI |
+| 5.5 | Concurrency & Consistency | **Planned (ADR-002):** exactly-once settlement guard (`UPDATE … WHERE status='PENDING'` + `@Version`), `SKIP LOCKED` on the retry job (**multi-instance-safe**), client `idempotencyKey` on `createOrder`, bulkhead on the Charge RPC, server-side pagination cap (`first ≤ 100`) |
+| 6.5 | Security | **Planned (ADR-002):** threat-model-first — Keycloak + Kong JWT authn (user PKCE + MCP client-credentials), gateway strips spoofable `X-User-Id`, service-level ownership authz, rate limiting, payment-service network isolation, SAST/dependency/secrets scanning, MCP prompt-injection guardrails |
 | 7 | MCP Server | 7 tools implemented, callable from Claude Desktop / claude.ai |
 | 8 | AI Layer | Agent using Anthropic SDK + tool calling against MCP server |
 | 9 | Production Readiness | CI/CD pipeline, integration + load tests, rate limiting, security review |
@@ -227,6 +229,8 @@ mcp-server/
 - [x] Phase 0–4: foundation → product (REST) → order (GraphQL) → payment (gRPC) complete
 - [x] Phase 5 (resilience+idempotency): retry ×3 + circuit breaker on Charge done; **idempotency keys persisted on orders + automated PENDING retry** done (charge.attempts, next_retry_at, FAILED terminal state); **Kafka events still open**
 - [x] Phase 6: Logs (Loki) + Metrics (Prometheus/Grafana) done; **tracing (Jaeger/Tempo) pending**
+- [ ] Phase 5.5 (Concurrency & Consistency): exactly-once settlement guard, SKIP LOCKED, createOrder idempotency, bulkhead, pagination cap — **planned, ADR-002**
+- [ ] Phase 6.5 (Security): threat model, Keycloak+Kong JWT authn, authz, rate limiting, supply-chain + secrets scanning, MCP guardrails — **planned, ADR-002**
 - [ ] Phase 7: mcp-server exposes 7 tools, tested from Claude Desktop
 - [ ] Phase 8: Agent built with Anthropic SDK using MCP tools + memory
 - [ ] Phase 9: CI/CD, load tests, rate limiting, security pass complete
