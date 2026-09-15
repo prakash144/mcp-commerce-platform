@@ -43,6 +43,8 @@ export function CheckoutPage() {
         INVALID_ITEM: 'One of the items in your cart is invalid.',
         INVALID_QUANTITY: 'Item quantity is out of range.',
         INVALID_CURRENCY: 'Invalid currency.',
+        PAYMENT_UNAVAILABLE: 'Payments are temporarily unavailable. Please try again in a moment.',
+        PAYMENT_REJECTED: 'Your payment was rejected by the payment provider.',
       }
       sendEvent('order.failed', { code })
       setError(messages[code] ?? `Could not place your order. Please try again.`)
