@@ -89,14 +89,15 @@ Kong and Keycloak sit on both networks — they are the entry points in producti
 - **Host port:** `6379`
 - **Used by:** Kong (rate limiter token bucket), product-service (read cache — later)
 
-### kafka (`apache/kafka:7.6` — KRaft, single node)
+### kafka (`confluentinc/cp-server:7.6.14` — KRaft, single node)
 - **Network:** backend
 - **Host port:** `9092` (external listener `PLAINTEXT_HOST` for host debugging)
 - **Internal listener:** `kafka:29092` (used by backend containers); controller quorum on `29093`
-- **KRaft, not ZooKeeper:** `KAFKA_PROCESS_ROLES=controller,broker`, `KAFKA_NODE_ID=1` — single-process broker, modern default, no ZK quorum to operate. Phase-5 switch (was `confluentinc/cp-server` + ZK before).
+- **KRaft, not ZooKeeper:** `KAFKA_PROCESS_ROLES=controller,broker`, `KAFKA_NODE_ID=1` — single-process broker, modern default, no ZK quorum to operate. Phase-5 switch (was `cp-server` + ZK before).
+- **Version note:** CP images publish patch tags only — always pin the full `x.y.z` (e.g. `7.6.14`), a bare `7.6` tag does not exist on Docker Hub.
 - **High availability note:** one broker → 3 partitions per event topic, `replication-factor=1`. Multi-broker is a config exercise, not a code concern.
 
-### schema-registry (`confluentinc/cp-schema-registry:7.6`)
+### schema-registry (`confluentinc/cp-schema-registry:7.6.14`)
 - **Network:** backend
 - **Host port:** `8089` (internal `schema-registry:8081`)
 - **Purpose:** single source of truth for event contracts. Subjects `<topic>-value`, `FULL` compatibility. Java services compile schemas from `common/events/avro` (`auto.register.schemas=false`); payment-service resolves at runtime.

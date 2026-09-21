@@ -63,7 +63,7 @@ services:
   # separate ZK quorum to run/operate. Tradeoff: newer model (Kafka >= 3.3;
   # the 2026 default) — some legacy tooling/tutorials still assume ZK.
   kafka:
-    image: confluentinc/cp-server:7.6
+    image: confluentinc/cp-server:7.6.14
     hostname: kafka
     networks:
       - backend
@@ -89,7 +89,7 @@ services:
       retries: 5
 
   schema-registry:
-    image: confluentinc/cp-schema-registry:7.6
+    image: confluentinc/cp-schema-registry:7.6.14
     hostname: schema-registry
     networks:
       - backend
