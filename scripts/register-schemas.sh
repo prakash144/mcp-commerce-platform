@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Register order/payment event schemas in Confluent Schema Registry and create
+# the corresponding Kafka topics with the intended partition count.
+#
+# Requires: docker compose stack up (schema-registry on :8089, kafka running),
+#           jq installed. Also requires an avro tool for validation — the
+#           schema JSON is validated against the registry on submit anyway.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+EVENTS_DIR="$ROOT/common/events/avro"
+COMPOSE="docker compose -f $ROOT/docker/docker-compose.yml"
+SR_URL="${SCHEMA_REGISTRY_URL:-http://localhost:8089}"   # host-published SR port
+PARTITIONS="${TOPIC_PARTITIONS:-3}"
+
+declare -A SCHEMA_TO_TOPIC=(
+  [OrderCreated.avsc]=orders.created
+  [OrderCancelled.avsc]=orders.cancelled
+  [PaymentSucceeded.avsc]=payments.succeeded
+  [PaymentFailed.avsc]=payments.failed
+  [PaymentVoided.avsc]=payments.voided
+  [PaymentRefunded.avsc]=payments.refunded
+)
+
+command -v jq >/dev/null || { echo "error: jq required"; exit 1; }
+
+echo "== Creating topics (${PARTITIONS} partitions each) =="
+for canon in "${!SCHEMA_TO_TOPIC[@]}"; do
+  topic="${SCHEMA_TO_TOPIC[$canon]}"
+  if $COMPOSE exec -T kafka kafka-topics --bootstrap-server localhost:29092 \
+       --create --if-not-exists --topic "$topic" --partitions "$PARTITIONS" \
+       --replication-factor 1 >/dev/null 2>&1; then
+    echo "  ✓ topic $topic ready"
+  else
+    echo "  ✗ failed to create topic $topic (kafka up?)"
+  fi
+done
+
+echo "== Registering schemas (compatibility=FULL) =="
+for file in "${!SCHEMA_TO_TOPIC[@]}"; do
+  topic="${SCHEMA_TO_TOPIC[$file]}"
+  subject="$topic-value"   # per-topic-value default naming strategy
+  schema_path="$EVENTS_DIR/$file"
+
+  # Guardrail: schema evolution must stay fully compatible (FULL) so that adding
+  # a field to a fact never breaks existing consumers.
+  curl -fsS -X PUT "$SR_URL/config/$subject" \
+    -H 'Content-Type: application/json' \
+    -d '{"compatibility":"FULL"}' || echo "  (subject $subject new — compat config skipped)"
+
+  response="$(
+    curl -fsS -X POST "$SR_URL/subjects/$subject/versions" \
+      -H 'Content-Type: application/vnd.schemaregistry.v1+json' \
+      -d "$(jq -n --arg s "$(cat "$schema_path")" '{schema: $s}')"
+  )" || { echo "  ✗ $file → $subject rejected"; continue; }
+
+  id="$(printf '%s' "$response" | jq -r '.id')"
+  echo "  ✓ $file ($file) → $subject (id=$id)"
+done
+
+echo "== Done. Browse topics/schemas: http://localhost:8086 (Kafka UI) =="

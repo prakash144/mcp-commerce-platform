@@ -3,9 +3,11 @@ package service
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"time"
 
+	"github.com/commerce/payment-service/internal/event"
 	"github.com/commerce/payment-service/internal/model"
 	"github.com/commerce/payment-service/internal/repository"
 	"github.com/google/uuid"
@@ -36,14 +38,40 @@ type PaymentService interface {
 	Refund(ctx context.Context, paymentID, idempotencyKey string, amountMinor int64, reason string) (*model.Payment, *model.Refund, error)
 	GetByID(ctx context.Context, id string) (*model.Payment, error)
 	ListPayments(ctx context.Context, page int, pageSize int, status string) ([]model.Payment, int64, error)
+	// HandleOrderCancelled runs the saga compensation for an OrderCancelled
+	// fact: refunds a captured payment or voids an authorized one.
+	HandleOrderCancelled(ctx context.Context, orderID, reason string) error
+}
+
+// EventPublisher publishes payment-fact events after a settlement commits.
+// The concrete implementation is the Kafka-backed event.Publisher; tests use
+// a no-op to keep the existing assertions focused on state transitions.
+type EventPublisher interface {
+	PaymentSucceeded(ctx context.Context, e event.PaymentSucceeded) error
+	PaymentFailed(ctx context.Context, e event.PaymentFailed) error
+	PaymentRefunded(ctx context.Context, e event.PaymentRefunded) error
+	PaymentVoided(ctx context.Context, e event.PaymentVoided) error
 }
 
 type paymentService struct {
-	repo repository.PaymentRepository
+	repo   repository.PaymentRepository
+	events EventPublisher
 }
 
-func NewPaymentService(repo repository.PaymentRepository) PaymentService {
-	return &paymentService{repo: repo}
+// Option configures a PaymentService at construction time.
+type Option func(*paymentService)
+
+// WithEventPublisher attaches the event publisher used to emit fact events.
+func WithEventPublisher(p EventPublisher) Option {
+	return func(s *paymentService) { s.events = p }
+}
+
+func NewPaymentService(repo repository.PaymentRepository, opts ...Option) PaymentService {
+	s := &paymentService{repo: repo}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 func (s *paymentService) Charge(ctx context.Context, in ChargeInput) (*model.Payment, error) {
@@ -79,6 +107,7 @@ func (s *paymentService) Charge(ctx context.Context, in ChargeInput) (*model.Pay
 		}
 		return nil, err
 	}
+	s.publishSucceeded(ctx, p, in.IdempotencyKey)
 	return p, nil
 }
 
@@ -118,6 +147,7 @@ func (s *paymentService) Void(ctx context.Context, paymentID, reason string) (*m
 	if err := s.repo.UpdatePayment(p); err != nil {
 		return nil, err
 	}
+	s.publishVoided(ctx, p)
 	return p, nil
 }
 
@@ -190,7 +220,84 @@ func (s *paymentService) Refund(ctx context.Context, paymentID, idempotencyKey s
 	if err := s.repo.UpdatePayment(p); err != nil {
 		return nil, nil, err
 	}
+	if p.Status == model.PaymentStatusRefunded {
+		s.publishRefunded(ctx, p, rf)
+	}
 	return p, rf, nil
+}
+
+// HandleOrderCancelled compensates an OrderCancelled fact. Payments still
+// refundable are refunded in full; authorized-but-uncaptured payments are
+// voided; already-terminal payments (REFUNDED/VOIDED/FAILED) are idempotent
+// no-ops. Idempotency is guaranteed by the "cancel:<orderID>" refund key and
+// the caller's set-once state guard.
+func (s *paymentService) HandleOrderCancelled(ctx context.Context, orderID, reason string) error {
+	p, err := s.repo.FindByOrderID(orderID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			slog.Info("no payment to compensate", "orderId", orderID)
+			return nil
+		}
+		return err
+	}
+	switch p.Status {
+	case model.PaymentStatusCaptured, model.PaymentStatusPartiallyRefunded:
+		_, _, err := s.Refund(ctx, p.ID, "cancel:"+orderID, 0, reason)
+		return err
+	case model.PaymentStatusAuthorized:
+		_, err := s.Void(ctx, p.ID, reason)
+		return err
+	default:
+		// REFUNDED / VOIDED / FAILED / PENDING — nothing left to compensate.
+		return nil
+	}
+}
+
+func (s *paymentService) publishSucceeded(ctx context.Context, p *model.Payment, idempotencyKey string) {
+	if s.events == nil {
+		return
+	}
+	if err := s.events.PaymentSucceeded(ctx, event.PaymentSucceeded{
+		OrderID:       p.OrderID,
+		PaymentID:     p.ID,
+		IdempotencyKey: idempotencyKey,
+		AmountMinor:   p.AmountMinor,
+		Currency:      p.Currency,
+		CorrelationID: CorrelationFrom(ctx),
+	}); err != nil {
+		// Best-effort publication: the settlement already completed; the event
+		// is a fact for consumers, not a dependency of this state machine.
+		slog.Error("failed to publish PaymentSucceeded", "orderId", p.OrderID, "error", err)
+	}
+}
+
+func (s *paymentService) publishRefunded(ctx context.Context, p *model.Payment, rf *model.Refund) {
+	if s.events == nil {
+		return
+	}
+	if err := s.events.PaymentRefunded(ctx, event.PaymentRefunded{
+		OrderID:       p.OrderID,
+		PaymentID:     p.ID,
+		RefundID:      rf.ID,
+		AmountMinor:   rf.AmountMinor,
+		Currency:      p.Currency,
+		CorrelationID: CorrelationFrom(ctx),
+	}); err != nil {
+		slog.Error("failed to publish PaymentRefunded", "orderId", p.OrderID, "error", err)
+	}
+}
+
+func (s *paymentService) publishVoided(ctx context.Context, p *model.Payment) {
+	if s.events == nil {
+		return
+	}
+	if err := s.events.PaymentVoided(ctx, event.PaymentVoided{
+		OrderID:       p.OrderID,
+		PaymentID:     p.ID,
+		CorrelationID: CorrelationFrom(ctx),
+	}); err != nil {
+		slog.Error("failed to publish PaymentVoided", "orderId", p.OrderID, "error", err)
+	}
 }
 
 func (s *paymentService) GetByID(ctx context.Context, id string) (*model.Payment, error) {

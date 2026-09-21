@@ -222,6 +222,7 @@ box_row "$(printf '  %-11s %-24s %s' 'Storefront' 'http://localhost:5173'      '
 box_row "$(printf '  %-11s %-24s %s' 'Admin'      'http://localhost:5173/admin' '(dashboard)')"
 box_row "$(printf '  %-11s %-24s %s' 'Grafana'    'http://localhost:3000'      '(admin/admin)')"
 box_row "$(printf '  %-11s %-24s %s' 'Prometheus' 'http://localhost:9090'      '(metrics)')"
+box_row "$(printf '  %-11s %-24s %s' 'Kafka UI'   'http://localhost:8086'      '(topics/consumers/SR)')"
 box_gap
 box_h
 box_row 'Service tooling:'

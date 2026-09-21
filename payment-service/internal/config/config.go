@@ -7,26 +7,30 @@ import (
 )
 
 type Config struct {
-	GRPCPort   int
-	RESTPort   int
-	DBHost     string
-	DBPort     int
-	DBUser     string
-	DBPassword string
-	DBName     string
-	DBSSLMode  string
+	GRPCPort           int
+	RESTPort           int
+	DBHost             string
+	DBPort             int
+	DBUser             string
+	DBPassword         string
+	DBName             string
+	DBSSLMode          string
+	KafkaBootstrap     string
+	SchemaRegistryURL  string
 }
 
 func Load() *Config {
 	return &Config{
-		GRPCPort:   getIntEnv("GRPC_PORT", 50051),
-		RESTPort:   getIntEnv("REST_PORT", 8090),
-		DBHost:     getEnv("DB_HOST", "localhost"),
-		DBPort:     getIntEnv("DB_PORT", 5432),
-		DBUser:     getEnv("DB_USER", "commerce"),
-		DBPassword: getEnv("DB_PASSWORD", "commerce_pass"),
-		DBName:     getEnv("DB_NAME", "paymentdb"),
-		DBSSLMode:  getEnv("DB_SSL_MODE", "disable"),
+		GRPCPort:          getIntEnv("GRPC_PORT", 50051),
+		RESTPort:          getIntEnv("REST_PORT", 8090),
+		DBHost:            getEnv("DB_HOST", "localhost"),
+		DBPort:            getIntEnv("DB_PORT", 5432),
+		DBUser:            getEnv("DB_USER", "commerce"),
+		DBPassword:        getEnv("DB_PASSWORD", "commerce_pass"),
+		DBName:            getEnv("DB_NAME", "paymentdb"),
+		DBSSLMode:         getEnv("DB_SSL_MODE", "disable"),
+		KafkaBootstrap:    getEnv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092"),
+		SchemaRegistryURL: getEnv("SCHEMA_REGISTRY_URL", "http://localhost:8089"),
 	}
 }
 

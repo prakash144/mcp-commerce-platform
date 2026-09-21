@@ -12,6 +12,7 @@ var ErrNotFound = errors.New("record not found")
 type PaymentRepository interface {
 	CreatePayment(p *model.Payment) error
 	FindByID(id string) (*model.Payment, error)
+	FindByOrderID(orderID string) (*model.Payment, error)
 	FindByIdempotencyKey(key string) (*model.Payment, error)
 	UpdatePayment(p *model.Payment) error
 	CreateRefund(r *model.Refund) error
@@ -47,6 +48,18 @@ func (r *paymentRepository) FindByID(id string) (*model.Payment, error) {
 func (r *paymentRepository) FindByIdempotencyKey(key string) (*model.Payment, error) {
 	var p model.Payment
 	err := r.db.First(&p, "idempotency_key = ?", key).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+func (r *paymentRepository) FindByOrderID(orderID string) (*model.Payment, error) {
+	var p model.Payment
+	err := r.db.First(&p, "order_id = ?", orderID).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrNotFound
 	}

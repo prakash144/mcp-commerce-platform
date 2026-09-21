@@ -162,7 +162,7 @@ mcp-server/
 | 2 | Product Service (REST) | Full CRUD + search, OpenAPI docs generated, ≥80% unit test coverage |
 | 3 | Order Service (GraphQL) | Schema published, resolvers + DataLoader, calls Payment via gRPC |
 | 4 | Payment Service (gRPC) | Proto defined, 5 RPCs implemented, interceptors for auth/logging/retry |
-| 5 | Event-Driven Architecture | All 7 events flowing through Kafka, idempotent consumers |
+| 5 | Event-Driven Architecture | 🔶 **done (hybrid):** Kafka **KRaft** (no ZK) + **Confluent Schema Registry** (Avro, FULL compat) + **Kafka UI** · transactionally-strong **outbox** (order-side, `SKIP LOCKED`) + best-effort payment facts · **choreographed saga compensation** (OrderCancelled → refund → PaymentRefunded → REFUNDED) · idempotent consumers w/ set-once guards · DLQ + replay · correlationId header → MDC · lag metrics + Grafana panel. See [kafka-events.md](./kafka-events.md) |
 | 6 | Resilience + Observability | 🔶 **done (partial):** Resilience4j retry/breaker on `Charge`, structured JSON logs → Loki, Prometheus metrics → Grafana dashboards, persisted idempotency keys + automated PENDING-order retry (backoff/attempt cap → FAILED). **Pending:** distributed tracing (Jaeger/Tempo), chaos drill in CI |
 | 5.5 | Concurrency & Consistency | **Planned (ADR-002):** exactly-once settlement guard (`UPDATE … WHERE status='PENDING'` + `@Version`), `SKIP LOCKED` on the retry job (**multi-instance-safe**), client `idempotencyKey` on `createOrder`, bulkhead on the Charge RPC, server-side pagination cap (`first ≤ 100`) |
 | 6.5 | Security | **Planned (ADR-002):** threat-model-first — Keycloak + Kong JWT authn (user PKCE + MCP client-credentials), gateway strips spoofable `X-User-Id`, service-level ownership authz, rate limiting, payment-service network isolation, SAST/dependency/secrets scanning, MCP prompt-injection guardrails |
@@ -227,7 +227,7 @@ mcp-server/
 ## 5. Milestone Checklist (copy into your issue tracker)
 
 - [x] Phase 0–4: foundation → product (REST) → order (GraphQL) → payment (gRPC) complete
-- [x] Phase 5 (resilience+idempotency): retry ×3 + circuit breaker on Charge done; **idempotency keys persisted on orders + automated PENDING retry** done (charge.attempts, next_retry_at, FAILED terminal state); **Kafka events still open**
+- [x] Phase 5 (resilience+idempotency): retry ×3 + circuit breaker on Charge done; **idempotency keys persisted on orders + automated PENDING retry** done (charge.attempts, next_retry_at, FAILED terminal state); **Kafka events: done** — outbox + Avro/SR + saga compensation + DLQ/replay ([kafka-events.md](./kafka-events.md))
 - [x] Phase 6: Logs (Loki) + Metrics (Prometheus/Grafana) done; **tracing (Jaeger/Tempo) pending**
 - [ ] Phase 5.5 (Concurrency & Consistency): exactly-once settlement guard, SKIP LOCKED, createOrder idempotency, bulkhead, pagination cap — **planned, ADR-002**
 - [ ] Phase 6.5 (Security): threat model, Keycloak+Kong JWT authn, authz, rate limiting, supply-chain + secrets scanning, MCP guardrails — **planned, ADR-002**

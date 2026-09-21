@@ -1,0 +1,15 @@
+{
+  "type": "record",
+  "name": "PaymentRefunded",
+  "namespace": "com.commerce.events",
+  "doc": "Published by payment-service after a Refund completes for a cancelled order (choreographed compensation). Consumers (order-service) mark the order REFUNDED. Key: orderId.",
+  "fields": [
+    { "name": "orderId", "type": "string" },
+    { "name": "paymentId", "type": "string" },
+    { "name": "refundId", "type": "string" },
+    { "name": "amountMinor", "type": "long" },
+    { "name": "currency", "type": "string" },
+    { "name": "occurredAt", "type": "string" },
+    { "name": "correlationId", "type": "string" }
+  ]
+}

@@ -109,6 +109,10 @@ Topical and lands the project's theme fast; comparatively light — a good
 > Kafka), and code review after. opencode won't write the implementation unless
 > you're stuck and ask.
 
-**Start here:** Item 1 (real gRPC Charge) — it's the smallest and makes the current
-demo fully real. Track progress in the [**Development Tracking**](./dev-tracking.md#todos) page (flip
-`StubPaymentClient` to ✅ when done).
+**Start here:** Item 3 (Observability, Phase 6) — Items 1 (real gRPC Charge) and 2
+(Kafka events, Phase 5) are now done. Build the "can I debug prod" proof: correlation
+ID through REST → GraphQL → gRPC → **Kafka** (the async-boundary propagation is the
+actual learning), spans, and one dashboard that answers "is checkout healthy?".
+Testing items are parked in the [Development Tracking](./dev-tracking.md#backlog)
+backlog. The full Staff study guide over everything built so far lives in the
+[**Interview Blueprint**](./interview-blueprint.md).

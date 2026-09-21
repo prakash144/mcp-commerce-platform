@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/commerce/payment-service/internal/event"
 	"github.com/commerce/payment-service/internal/model"
 	"github.com/commerce/payment-service/internal/repository"
 	"github.com/commerce/payment-service/internal/service"
@@ -37,6 +38,15 @@ func (f *fakeRepo) FindByID(id string) (*model.Payment, error) {
 func (f *fakeRepo) FindByIdempotencyKey(key string) (*model.Payment, error) {
 	for _, p := range f.payments {
 		if p.IdempotencyKey == key {
+			return p, nil
+		}
+	}
+	return nil, repository.ErrNotFound
+}
+
+func (f *fakeRepo) FindByOrderID(orderID string) (*model.Payment, error) {
+	for _, p := range f.payments {
+		if p.OrderID == orderID {
 			return p, nil
 		}
 	}
@@ -450,5 +460,168 @@ func TestInvalidUUIDRejected(t *testing.T) {
 				t.Errorf("got %v, want ErrInvalidPaymentID", err)
 			}
 		})
+	}
+}
+
+// eventRecorder implements service.EventPublisher, capturing emitted fact
+// events for assertions without needing Kafka.
+type eventRecorder struct {
+	succeeded []event.PaymentSucceeded
+	failed    []event.PaymentFailed
+	refunded  []event.PaymentRefunded
+	voided    []event.PaymentVoided
+}
+
+func (r *eventRecorder) PaymentSucceeded(_ context.Context, e event.PaymentSucceeded) error {
+	r.succeeded = append(r.succeeded, e)
+	return nil
+}
+
+func (r *eventRecorder) PaymentFailed(_ context.Context, e event.PaymentFailed) error {
+	r.failed = append(r.failed, e)
+	return nil
+}
+
+func (r *eventRecorder) PaymentRefunded(_ context.Context, e event.PaymentRefunded) error {
+	r.refunded = append(r.refunded, e)
+	return nil
+}
+
+func (r *eventRecorder) PaymentVoided(_ context.Context, e event.PaymentVoided) error {
+	r.voided = append(r.voided, e)
+	return nil
+}
+
+func TestChargePublishesSucceeded(t *testing.T) {
+	repo := newFakeRepo()
+	rec := &eventRecorder{}
+	svc := service.NewPaymentService(repo, service.WithEventPublisher(rec))
+
+	p, err := svc.Charge(context.Background(), service.ChargeInput{
+		IdempotencyKey: "idem-1",
+		OrderID:        "order-9",
+		CustomerID:     "customer-1",
+		AmountMinor:    4950,
+		Currency:       "usd",
+		Method:         model.PaymentMethodCard,
+	})
+	if err != nil {
+		t.Fatalf("charge: %v", err)
+	}
+	if len(rec.succeeded) != 1 {
+		t.Fatalf("got %d succeeded events, want 1", len(rec.succeeded))
+	}
+	e := rec.succeeded[0]
+	if e.OrderID != "order-9" || e.PaymentID != p.ID || e.AmountMinor != 4950 || e.Currency != "USD" {
+		t.Errorf("unexpected succeeded event: %+v", e)
+	}
+}
+
+func TestChargeReplayDoesNotRepublish(t *testing.T) {
+	repo := newFakeRepo()
+	rec := &eventRecorder{}
+	svc := service.NewPaymentService(repo, service.WithEventPublisher(rec))
+	repo.payments["11111111-1111-1111-1111-111111111111"] = &model.Payment{
+		ID: "11111111-1111-1111-1111-111111111111", OrderID: "order-9",
+		IdempotencyKey: "idem-1", Status: model.PaymentStatusCaptured,
+	}
+
+	if _, err := svc.Charge(context.Background(), service.ChargeInput{
+		IdempotencyKey: "idem-1", OrderID: "order-9", AmountMinor: 1000, Currency: "USD",
+		Method: model.PaymentMethodCard,
+	}); err != nil {
+		t.Fatalf("replay charge: %v", err)
+	}
+	if len(rec.succeeded) != 0 {
+		t.Errorf("got %d succeeded events on replay, want 0", len(rec.succeeded))
+	}
+}
+
+func TestHandleOrderCancelledRefundsCaptured(t *testing.T) {
+	repo := newFakeRepo()
+	rec := &eventRecorder{}
+	svc := service.NewPaymentService(repo, service.WithEventPublisher(rec))
+	seedPayment(repo, "11111111-1111-1111-1111-111111111111", model.PaymentStatusCaptured, 10000)
+
+	ctx := service.WithCorrelation(context.Background(), "cid-saga-1")
+	if err := svc.HandleOrderCancelled(ctx, "order-1", "customer changed mind"); err != nil {
+		t.Fatalf("handle cancelled: %v", err)
+	}
+	p := repo.payments["11111111-1111-1111-1111-111111111111"]
+	if p.Status != model.PaymentStatusRefunded {
+		t.Fatalf("status = %s, want REFUNDED", p.Status)
+	}
+	if len(rec.refunded) != 1 {
+		t.Fatalf("got %d refunded events, want 1", len(rec.refunded))
+	}
+	if e := rec.refunded[0]; e.OrderID != "order-1" || e.PaymentID != p.ID || e.AmountMinor != 10000 || e.CorrelationID != "cid-saga-1" {
+		t.Errorf("unexpected refunded event: %+v", e)
+	}
+}
+
+func TestHandleOrderCancelledVoidsAuthorized(t *testing.T) {
+	repo := newFakeRepo()
+	rec := &eventRecorder{}
+	svc := service.NewPaymentService(repo, service.WithEventPublisher(rec))
+	seedPayment(repo, "11111111-1111-1111-1111-111111111111", model.PaymentStatusAuthorized, 10000)
+
+	if err := svc.HandleOrderCancelled(context.Background(), "order-1", "manual review"); err != nil {
+		t.Fatalf("handle cancelled: %v", err)
+	}
+	p := repo.payments["11111111-1111-1111-1111-111111111111"]
+	if p.Status != model.PaymentStatusVoided {
+		t.Fatalf("status = %s, want VOIDED", p.Status)
+	}
+	if len(rec.voided) != 1 || rec.voided[0].OrderID != "order-1" {
+		t.Errorf("unexpected voided events: %+v", rec.voided)
+	}
+}
+
+func TestHandleOrderCancelledAlreadyRefundedIsNoop(t *testing.T) {
+	repo := newFakeRepo()
+	rec := &eventRecorder{}
+	svc := service.NewPaymentService(repo, service.WithEventPublisher(rec))
+	seedPayment(repo, "11111111-1111-1111-1111-111111111111", model.PaymentStatusRefunded, 10000)
+
+	if err := svc.HandleOrderCancelled(context.Background(), "order-1", "duplicate delivery"); err != nil {
+		t.Fatalf("handle cancelled: %v", err)
+	}
+	if got := len(repo.refunds); got != 0 {
+		t.Errorf("created %d refunds, want 0", got)
+	}
+	if len(rec.refunded)+len(rec.voided) != 0 {
+		t.Errorf("unexpected events: refunded=%d voided=%d", len(rec.refunded), len(rec.voided))
+	}
+}
+
+func TestHandleOrderCancelledUnknownOrderIsNoop(t *testing.T) {
+	repo := newFakeRepo()
+	rec := &eventRecorder{}
+	svc := service.NewPaymentService(repo, service.WithEventPublisher(rec))
+
+	if err := svc.HandleOrderCancelled(context.Background(), "no-such-order", "tidy"); err != nil {
+		t.Fatalf("handle cancelled: %v", err)
+	}
+	if len(rec.refunded)+len(rec.voided) != 0 {
+		t.Errorf("unexpected events: refunded=%d voided=%d", len(rec.refunded), len(rec.voided))
+	}
+}
+
+func TestHandleOrderCancelledReplayIsIdempotent(t *testing.T) {
+	repo := newFakeRepo()
+	rec := &eventRecorder{}
+	svc := service.NewPaymentService(repo, service.WithEventPublisher(rec))
+	seedPayment(repo, "11111111-1111-1111-1111-111111111111", model.PaymentStatusCaptured, 10000)
+
+	for i := 0; i < 2; i++ {
+		if err := svc.HandleOrderCancelled(context.Background(), "order-1", "duplicate cancel"); err != nil {
+			t.Fatalf("attempt %d: %v", i, err)
+		}
+	}
+	if got := len(repo.refunds); got != 1 {
+		t.Errorf("stored %d refunds, want 1 (dedup by cancel:<orderID> key)", got)
+	}
+	if len(rec.refunded) != 1 {
+		t.Errorf("published %d refunded events, want 1", len(rec.refunded))
 	}
 }

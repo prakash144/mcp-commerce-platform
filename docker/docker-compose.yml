@@ -58,16 +58,10 @@ services:
       timeout: 3s
       retries: 5
 
-  # ─── Kafka ───
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.6
-    hostname: zookeeper
-    networks:
-      - backend
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-
+  # ─── Kafka (KRaft — no ZooKeeper; combined controller+broker single node) ───
+  # KRaft stores cluster metadata in the broker's own Raft quorum, so there is no
+  # separate ZK quorum to run/operate. Tradeoff: newer model (Kafka >= 3.3;
+  # the 2026 default) — some legacy tooling/tutorials still assume ZK.
   kafka:
     image: confluentinc/cp-server:7.6
     hostname: kafka
@@ -75,14 +69,14 @@ services:
       - backend
     ports:
       - "9092:9092"
-    depends_on:
-      zookeeper:
-        condition: service_started
     environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: controller,broker
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_LISTENERS: PLAINTEXT://kafka:29092,CONTROLLER://kafka:29093,PLAINTEXT_HOST://localhost:9092
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
@@ -107,6 +101,33 @@ services:
     environment:
       SCHEMA_REGISTRY_HOST_NAME: schema-registry
       SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:29092
+
+  # ─── Kafka UI (provectus) — browse topics, consumer groups, schema registry ───
+  kafka-ui:
+    image: provectus/kafka-ui:latest
+    hostname: kafka-ui
+    labels:
+      svc: kafka-ui
+    logging: *loki-logging
+    networks:
+      - backend
+    ports:
+      - "8086:8080"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_started
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRYURL: http://schema-registry:8081
+      DYNAMIC_CONFIG_ENABLED: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/actuator/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # ─── Observability: Loki (log store) + Grafana (UI) ───
   loki:
@@ -290,12 +311,18 @@ services:
         condition: service_healthy
       product-service:
         condition: service_started
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_started
     environment:
       DB_URL: jdbc:postgresql://postgres:5432/orderdb
       DB_USERNAME: commerce
       DB_PASSWORD: commerce_pass
       PRODUCT_SERVICE_URL: http://product-service:8081
       PAYMENT_SERVICE_TARGET: payment-service:50051
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8082/actuator/health >/dev/null || exit 1"]
       interval: 15s
@@ -320,6 +347,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_started
     environment:
       GRPC_PORT: "50051"
       REST_PORT: "8090"
@@ -328,6 +359,8 @@ services:
       DB_USER: commerce
       DB_PASSWORD: commerce_pass
       DB_NAME: paymentdb
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
     healthcheck:
       test: ["CMD", "/usr/local/bin/grpc_health_probe", "-addr=:50051"]
       interval: 15s

@@ -1,0 +1,15 @@
+{
+  "type": "record",
+  "name": "PaymentFailed",
+  "namespace": "com.commerce.events",
+  "doc": "Published by payment-service when a Charge exhausts retries and settles FINAL. retryable=false means the saga ends; consumers should transition PENDING orders to FAILED (set-once guard). Key: orderId.",
+  "fields": [
+    { "name": "orderId", "type": "string" },
+    { "name": "paymentId", "type": "string" },
+    { "name": "retryable", "type": "boolean", "default": false },
+    { "name": "attempts", "type": "int" },
+    { "name": "errorCode", "type": "string" },
+    { "name": "occurredAt", "type": "string" },
+    { "name": "correlationId", "type": "string" }
+  ]
+}

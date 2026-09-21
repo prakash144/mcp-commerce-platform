@@ -52,6 +52,7 @@ enum OrderStatus {
     CONFIRMED
     CANCELLED
     FAILED
+    REFUNDED
 }
 
 input OrderItemInput {
