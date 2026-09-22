@@ -5,7 +5,6 @@ import io.confluent.kafka.serializers.AbstractKafkaSchemaSerDeConfig;
 import io.confluent.kafka.serializers.KafkaAvroDeserializer;
 import io.confluent.kafka.serializers.KafkaAvroSerializer;
 import org.apache.avro.specific.SpecificRecord;
-import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
@@ -14,6 +13,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.kafka.annotation.EnableKafka;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
@@ -43,6 +43,7 @@ import java.util.Map;
  *    than blocking the partition forever.
  */
 @Configuration
+@EnableKafka
 public class KafkaConfig {
 
     private static final Logger log = LoggerFactory.getLogger(KafkaConfig.class);
@@ -74,19 +75,24 @@ public class KafkaConfig {
     @Bean
     public ConsumerFactory<String, SpecificRecord> consumerFactory() {
         Map<String, Object> props = new HashMap<>(kafkaProps());
-        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
+        // These are read by the KafkaAvroDeserializer when the container
+        // configures it from the consumer props (ErrorHandlingDeserializer
+        // re-configures its delegate with this map on every consumer start).
+        props.put(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, schemaRegistryUrl);
+        props.put("specific.avro.reader", true);
 
         // Decode into the generated specific records; poison records surface as
         // a DeserializationException handled by the error handler instead of an
         // unchecked crash that wedges the consumer.
-        KafkaAvroDeserializer avro = new KafkaAvroDeserializer();
-        avro.configure(Map.of(
-                AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, schemaRegistryUrl,
-                "specific.avro.reader", true
-        ), false);
-        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
-                new ErrorHandlingDeserializer<>(avro));
-        return new DefaultKafkaConsumerFactory<>(props);
+
+        // Deserializers must be registered on the factory, not as instances in
+        // the consumer props — Kafka's ConfigDef only accepts a Class there.
+        DefaultKafkaConsumerFactory<String, SpecificRecord> factory =
+                new DefaultKafkaConsumerFactory<>(props);
+        factory.setKeyDeserializer(new StringDeserializer());
+        factory.setValueDeserializer(new ErrorHandlingDeserializer(
+                new KafkaAvroDeserializer()));
+        return factory;
     }
 
     @Bean

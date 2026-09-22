@@ -293,7 +293,9 @@ public class OrderService {
             throw new OrderValidationException("ORDER_ALREADY_CANCELLED",
                     "Order " + id + " is already cancelled");
         }
-        if (order.getStatus() == OrderStatus.CONFIRMED || order.getStatus() == OrderStatus.FAILED) {
+        // A captured (CONFIRMED) order is cancellable too: the choreographed saga
+        // refunds it and lands it in REFUNDED. Only FAILED orders are terminal.
+        if (order.getStatus() == OrderStatus.FAILED) {
             throw new OrderValidationException("ORDER_NOT_CANCELLABLE",
                     "Order " + id + " is " + order.getStatus() + " and cannot be cancelled");
         }

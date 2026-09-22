@@ -50,6 +50,13 @@ func main() {
 		slog.Error("failed to migrate database", "error", err)
 		os.Exit(1)
 	}
+	// customer identity is a free-form external id (see order-service VARCHAR and
+	// the avro OrderCreated.customerId), not a uuid. AutoMigrate does not change
+	// existing column types, so widen columns created by earlier boots here.
+	if err := db.Exec(`ALTER TABLE payments ALTER COLUMN customer_id TYPE varchar(255) USING customer_id::varchar(255)`).Error; err != nil {
+		slog.Error("failed to widen payments.customer_id", "error", err)
+		os.Exit(1)
+	}
 	slog.Info("database connected and migrated")
 
 	repo := repository.NewPaymentRepository(db)

@@ -46,23 +46,27 @@ poll_status() { # prints "STATUS<tab>PAYMENT_ID" while awaiting a terminal state
   for _ in $(seq 1 24); do
     status="$(gql 'query($id: ID!){order(id:$id){status paymentId}}' '{"id":"'"$ORDER_ID"'"}')"
     if printf '%s' "$status" | jq -e --arg s "$expected" '.data.order.status == $s' >/dev/null 2>&1; then
-      printf '%s' "$status" | jq -r '.data.order.status, .data.order.paymentId // empty' | paste -sd,
+      printf '%s' "$status" | jq -r '.data.order.status, .data.order.paymentId // empty' | paste -s -d, -
       return 0
     fi
     sleep 0.5
   done
-  printf '%s' "$status" | jq -r '.data.order.status, .data.order.paymentId // empty' | paste -sd,
+  printf '%s' "$status" | jq -r '.data.order.status, .data.order.paymentId // empty' | paste -s -d, -
   return 1
 }
 
 say "Preflight"
-for url in "$ORDER_URL" "$SR_URL/subjects" "http://localhost:8086"; do
+curl -fsS -o /dev/null --max-time 5 -X POST "$ORDER_URL" \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"{ __typename }"}' 2>/dev/null ||
+  die "unreachable: $ORDER_URL (is the stack up?)"
+for url in "$SR_URL/subjects" "http://localhost:8086"; do
   curl -fsS -o /dev/null --max-time 5 "$url" 2>/dev/null ||
     die "unreachable: $url (is the stack up?)"
 done
 echo "  ✓ order graphql, schema-registry, kafka-ui reachable"
 
-PRODUCT_ID="$(curl -fsS --max-time 5 "$PRODUCT_URL?page=0&size=1" | jq -r '.items[0].id // empty')"
+PRODUCT_ID="$(curl -fsS --max-time 5 "$PRODUCT_URL?page=0&size=1" | jq -r '(.content // .items)[0].id // empty')"
 [ -n "${PRODUCT_ID:-}" ] || die "no product found on $PRODUCT_URL (seed products first)"
 echo "  ✓ picked product $PRODUCT_ID"
 
@@ -113,7 +117,7 @@ esac
 say "6) Consumer groups: lag after saga (should be 0)"
 for group in order-saga payment-compensation; do
   echo "  -- group $group"
-  $COMPOSE exec -T kafka kafka-consumer-groups --bootstrap-server localhost:29092 \
+  $COMPOSE exec -T kafka kafka-consumer-groups --bootstrap-server kafka:29092 \
     --describe --group "$group" 2>/dev/null | awk 'NR==1 || !/^>/ {print "  " $0}'
 done
 

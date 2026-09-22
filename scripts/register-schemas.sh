@@ -13,21 +13,23 @@ COMPOSE="docker compose -f $ROOT/docker/docker-compose.yml"
 SR_URL="${SCHEMA_REGISTRY_URL:-http://localhost:8089}"   # host-published SR port
 PARTITIONS="${TOPIC_PARTITIONS:-3}"
 
-declare -A SCHEMA_TO_TOPIC=(
-  [OrderCreated.avsc]=orders.created
-  [OrderCancelled.avsc]=orders.cancelled
-  [PaymentSucceeded.avsc]=payments.succeeded
-  [PaymentFailed.avsc]=payments.failed
-  [PaymentVoided.avsc]=payments.voided
-  [PaymentRefunded.avsc]=payments.refunded
+# "schema-file topic-name" pairs (kept parallel-array free so the script runs on
+# bash 3.2, macOS's default /usr/bin/env bash — no `declare -A`).
+SCHEMAS=(
+  "OrderCreated.avsc orders.created"
+  "OrderCancelled.avsc orders.cancelled"
+  "PaymentSucceeded.avsc payments.succeeded"
+  "PaymentFailed.avsc payments.failed"
+  "PaymentVoided.avsc payments.voided"
+  "PaymentRefunded.avsc payments.refunded"
 )
 
 command -v jq >/dev/null || { echo "error: jq required"; exit 1; }
 
 echo "== Creating topics (${PARTITIONS} partitions each) =="
-for canon in "${!SCHEMA_TO_TOPIC[@]}"; do
-  topic="${SCHEMA_TO_TOPIC[$canon]}"
-  if $COMPOSE exec -T kafka kafka-topics --bootstrap-server localhost:29092 \
+for entry in "${SCHEMAS[@]}"; do
+  topic="${entry##* }"   # part after the space
+  if $COMPOSE exec -T kafka kafka-topics --bootstrap-server kafka:29092 \
        --create --if-not-exists --topic "$topic" --partitions "$PARTITIONS" \
        --replication-factor 1 >/dev/null 2>&1; then
     echo "  ✓ topic $topic ready"
@@ -37,8 +39,9 @@ for canon in "${!SCHEMA_TO_TOPIC[@]}"; do
 done
 
 echo "== Registering schemas (compatibility=FULL) =="
-for file in "${!SCHEMA_TO_TOPIC[@]}"; do
-  topic="${SCHEMA_TO_TOPIC[$file]}"
+for entry in "${SCHEMAS[@]}"; do
+  file="${entry%% *}"   # part before the space
+  topic="${entry##* }"
   subject="$topic-value"   # per-topic-value default naming strategy
   schema_path="$EVENTS_DIR/$file"
 
@@ -46,7 +49,7 @@ for file in "${!SCHEMA_TO_TOPIC[@]}"; do
   # a field to a fact never breaks existing consumers.
   curl -fsS -X PUT "$SR_URL/config/$subject" \
     -H 'Content-Type: application/json' \
-    -d '{"compatibility":"FULL"}' || echo "  (subject $subject new — compat config skipped)"
+    -d '{"compatibility":"FULL"}' -o /dev/null || echo "  (subject $subject new — compat config skipped)"
 
   response="$(
     curl -fsS -X POST "$SR_URL/subjects/$subject/versions" \
@@ -55,7 +58,7 @@ for file in "${!SCHEMA_TO_TOPIC[@]}"; do
   )" || { echo "  ✗ $file → $subject rejected"; continue; }
 
   id="$(printf '%s' "$response" | jq -r '.id')"
-  echo "  ✓ $file ($file) → $subject (id=$id)"
+  echo "  ✓ $file → $subject (id=$id)"
 done
 
 echo "== Done. Browse topics/schemas: http://localhost:8086 (Kafka UI) =="

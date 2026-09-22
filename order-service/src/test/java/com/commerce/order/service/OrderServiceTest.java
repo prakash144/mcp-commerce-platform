@@ -336,13 +336,13 @@ class OrderServiceTest {
     }
 
     @Test
-    void cancelOrderRejectsConfirmed() {
+    void cancelOrderAllowsConfirmed() {
         UUID orderId = UUID.randomUUID();
         seed(Order.builder().id(orderId).status(OrderStatus.CONFIRMED).build());
 
-        assertThatThrownBy(() -> orderService.cancelOrder(orderId))
-                .isInstanceOf(OrderValidationException.class)
-                .hasMessageContaining("cannot be cancelled");
+        OrderOutput out = orderService.cancelOrder(orderId);
+
+        assertThat(out.getStatus()).isEqualTo(OrderStatus.CANCELLED);
     }
 
     @Test
