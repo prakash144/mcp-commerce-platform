@@ -106,6 +106,13 @@ sequenceDiagram
     O-->>W: order result
 ```
 
+**Async facts + saga (Phase 5):** while the charge above is synchronous, the
+lifecycle is event-driven around it — `OrderCreated`/`OrderCancelled` commit via a
+**transactional outbox** to Kafka (KRaft, Avro + Schema Registry); payment-service
+publishes `PaymentSucceeded`/`PaymentRefunded`/`PaymentVoided`; and **cancelling an
+order runs a choreographed saga** (OrderCancelled → refund → PaymentRefunded → order
+`REFUNDED`). See [`docs/kafka-events.md`](./docs/kafka-events.md).
+
 ---
 
 ## Observability (Loki + Prometheus + Grafana)
@@ -136,12 +143,13 @@ Prometheus scrapes all three services. Two Grafana dashboards are provisioned:
 
 ```
 ├── product-service/          REST (Java 21 + Spring Boot)
-├── order-service/            GraphQL (Java 21 + Spring GraphQL)
-├── payment-service/          gRPC (Go)
+├── order-service/            GraphQL (Java 21 + Spring GraphQL) + Kafka outbox/consumers
+├── payment-service/          gRPC (Go) + Kafka facts/compensation
 ├── web/                      Storefront + Admin (React + Vite)
+├── common/events/            Source-of-truth Avro schemas (shared by Java/Go)
 ├── docs/                     Learning path (start with architect.md)
 ├── docker/                   Compose + Grafana dashboards + Prometheus config
-├── scripts/                  run-demo.sh
+├── scripts/                  run-demo.sh, register-schemas.sh, saga-demo.sh
 └── mcp-server/               MCP adapter (Phase 7)
 ```
 
@@ -176,20 +184,22 @@ cd web && npm run dev
 | 6 | [`docs/frontend-architecture.md`](./docs/frontend-architecture.md) | React + Vite, API integration, state management |
 | 7 | [`docs/testing-strategy.md`](./docs/testing-strategy.md) | E2E tests, resilience drills, how to verify edge cases |
 | 8 | [`docs/infrastructure.md`](./docs/infrastructure.md) | Docker, compose, healthchecks, deployment |
-| 9 | [`docs/adr-002-concurrency-and-security.md`](./docs/adr-002-concurrency-and-security.md) | Concurrency = hardening milestone; security threat model + both test plans |
-| 10 | [`docs/dev-tracking.md`](./docs/dev-tracking.md) | Session history, todos |
+| 9 | [`docs/kafka-events.md`](./docs/kafka-events.md) | Event-driven architecture — outbox, Avro/SR, saga compensation, DLQ + replay |
+| 10 | [`docs/adr-002-concurrency-and-security.md`](./docs/adr-002-concurrency-and-security.md) | Concurrency = hardening milestone; security threat model + both test plans |
+| 11 | [`docs/interview-blueprint.md`](./docs/interview-blueprint.md) | Staff-interview study guide over everything built (systems design + STAR stories) |
+| 12 | [`docs/dev-tracking.md`](./docs/dev-tracking.md) | Session history, todos |
 
 ---
 
 ## Roadmap
 
-| Phase | Focus | Status |
-|---|---|---|---|
-| 0–4 | Planning + Foundation → Product/Order/Payment services | ✅ |
-| 6 | Resilience + Observability (retry ×3, breaker, idempotent PENDING retry, Loki/Prometheus/Grafana) | 🔶 (**tracing pending**) |
-| 5 | Event-Driven (Kafka) | ⬜ |
-| 5.5 | Concurrency & Consistency (ADR-002) | ⬜ |
-| 6.5 | Security — Gateway + Auth + AI guardrails (ADR-002) | ⬜ |
-| 7 | MCP Server (AI tools) | ⬜ |
-| 8 | AI Layer (agent) | ⬜ |
-| 9 | Production Readiness | ⬜ |
+| Phase | Focus                                                                                             | Status                   |
+|-------|---------------------------------------------------------------------------------------------------|--------------------------|
+| 0–4   | Planning + Foundation → Product/Order/Payment services                                            | ✅                       |
+| 6     | Resilience + Observability (retry ×3, breaker, idempotent PENDING retry, Loki/Prometheus/Grafana) | 🔶 (**tracing pending**) |
+| 5     | Event-Driven (Kafka) — KRaft + Avro/Schema Registry, transactional outbox, saga compensation (cancel→refund), DLQ + replay, Kafka UI | ✅ ([kafka-events.md](./docs/kafka-events.md)) |
+| 5.5   | Concurrency & Consistency (ADR-002)                                                               | ⬜                       |
+| 6.5   | Security — Gateway + Auth + AI guardrails (ADR-002)                                               | ⬜                       |
+| 7     | MCP Server (AI tools)                                                                             | ⬜                       |
+| 8     | AI Layer (agent)                                                                                  | ⬜                       |
+| 9     | Production Readiness                                                                              | ⬜                       |

@@ -11,6 +11,7 @@ import com.commerce.order.dto.OrderStatsOutput;
 import com.commerce.order.entity.Order;
 import com.commerce.order.entity.OrderItem;
 import com.commerce.order.entity.OrderStatus;
+import com.commerce.order.event.OrderEventOutbox;
 import com.commerce.order.exception.OrderNotFoundException;
 import com.commerce.order.exception.OrderValidationException;
 import com.commerce.order.mapper.OrderMapper;
@@ -51,6 +52,7 @@ public class OrderService {
     private final PaymentClient paymentClient;
     private final CustomerContext customerContext;
     private final OrderMetrics orderMetrics;
+    private final OrderEventOutbox orderEventOutbox;
     private final TransactionTemplate tx;
 
     @Value("${commerce.order.default-customer-id}")
@@ -129,6 +131,10 @@ public class OrderService {
 
         return tx.execute(status -> {
             Order saved = orderRepository.save(base);
+            // Transactional outbox: the OrderCreated fact is written in the SAME
+            // DB transaction as the order, so the event is durable even if the
+            // process dies before the relay publishes it. Not a dual-write gap.
+            orderEventOutbox.recordOrderCreated(saved);
             log.info("evt=order.persisted orderId={} total={} status=PENDING idempotencyKey={}",
                     saved.getId(), finalTotal, idempotencyKey);
             return saved;
@@ -283,16 +289,76 @@ public class OrderService {
     public OrderOutput cancelOrder(UUID id) {
         Order order = orderRepository.findById(id)
                 .orElseThrow(() -> new OrderNotFoundException(id));
-        if (order.getStatus() == OrderStatus.CANCELLED) {
+        if (order.getStatus() == OrderStatus.CANCELLED || order.getStatus() == OrderStatus.REFUNDED) {
             throw new OrderValidationException("ORDER_ALREADY_CANCELLED",
                     "Order " + id + " is already cancelled");
         }
-        if (order.getStatus() == OrderStatus.CONFIRMED || order.getStatus() == OrderStatus.FAILED) {
+        // A captured (CONFIRMED) order is cancellable too: the choreographed saga
+        // refunds it and lands it in REFUNDED. Only FAILED orders are terminal.
+        if (order.getStatus() == OrderStatus.FAILED) {
             throw new OrderValidationException("ORDER_NOT_CANCELLABLE",
                     "Order " + id + " is " + order.getStatus() + " and cannot be cancelled");
         }
         order.setStatus(OrderStatus.CANCELLED);
-        return mapper.toOutput(orderRepository.save(order));
+        Order saved = orderRepository.save(order);
+        // Choreographed saga compensation: the OrderCancelled fact (same tx) makes
+        // payment-service refund/void the money. The saga completes when the
+        // PaymentRefunded/Voided event comes back and moves the order to REFUNDED.
+        orderEventOutbox.recordOrderCancelled(saved, "user_request");
+        return mapper.toOutput(saved);
+    }
+
+    // ── Event-driven transitions (idempotent; invoked by PaymentEventConsumer) ──
+
+    /** PaymentSucceeded -> PENDING becomes CONFIRMED once (guarded UPDATE). */
+    @Transactional
+    public void handlePaymentSucceeded(String orderId, String paymentId) {
+        UUID id = UUID.fromString(orderId);
+        int updated = orderRepository.confirmIfPending(id, paymentId);
+        if (updated > 0) {
+            orderMetrics.orderCreated("CONFIRMED");
+            log.info("evt=order.event.settled orderId={} source=kafka payments.succeeded paymentId={}",
+                    id, paymentId);
+        } else {
+            log.info("evt=order.event.skipped orderId={} event=PaymentSucceeded (already transitioned)",
+                    id);
+        }
+    }
+
+    /** PaymentFailed(final) -> a still-PENDING order ends in FAILED (guarded). */
+    @Transactional
+    public void handlePaymentFailed(String orderId, String errorCode) {
+        UUID id = UUID.fromString(orderId);
+        int updated = orderRepository.failIfPending(id, truncate("payment " + errorCode));
+        if (updated > 0) {
+            orderMetrics.orderCreated("FAILED");
+            log.warn("evt=order.event.failed orderId={} source=kafka payments.failed error={}",
+                    id, errorCode);
+        } else {
+            log.info("evt=order.event.skipped orderId={} event=PaymentFailed (already transitioned)",
+                    id);
+        }
+    }
+
+    /** PaymentRefunded -> CANCELLED order becomes REFUNDED (compensation done). */
+    @Transactional
+    public void handlePaymentRefunded(String orderId) {
+        UUID id = UUID.fromString(orderId);
+        int updated = orderRepository.refundIfCancelled(id);
+        if (updated > 0) {
+            orderMetrics.orderCreated("REFUNDED");
+            log.info("evt=order.event.refunded orderId={} source=kafka payments.refunded", id);
+        } else {
+            log.info("evt=order.event.skipped orderId={} event=PaymentRefunded (already transitioned)",
+                    id);
+        }
+    }
+
+    /** PaymentVoided -> the order is already CANCELLED; this confirms the end. */
+    @Transactional
+    public void handlePaymentVoided(String orderId) {
+        UUID id = UUID.fromString(orderId);
+        log.info("evt=order.event.voided orderId={} source=kafka payments.voided", id);
     }
 
     @Transactional(readOnly = true)

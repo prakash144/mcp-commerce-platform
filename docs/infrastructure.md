@@ -66,6 +66,9 @@ Kong and Keycloak sit on both networks — they are the entry points in producti
 | `docker/grafana/provisioning/dashboards/` | Commerce — Logs + Metrics dashboards |
 | `docker/loki/config.yaml` | Loki config (single-binary, ~14 day retention) |
 | `docker/kong-config.yml` | Kong declarative config (DB-less mode) |
+| `common/events/avro/*.avsc` | Source-of-truth event schemas (compiled by Java, resolved live by Go) |
+| `scripts/register-schemas.sh` | Creates topics + registers schemas (FULL compat) |
+| `scripts/saga-demo.sh` | Drives the create → confirm → cancel → refund saga, prints timeline + lag |
 | `product-service/Dockerfile` | product-service image |
 | `order-service/Dockerfile` | order-service image |
 | `payment-service/Dockerfile` | payment-service image |
@@ -86,13 +89,24 @@ Kong and Keycloak sit on both networks — they are the entry points in producti
 - **Host port:** `6379`
 - **Used by:** Kong (rate limiter token bucket), product-service (read cache — later)
 
-### kafka / zookeeper (`confluentinc/cp-server:7.6`)
+### kafka (`confluentinc/cp-server:7.6.14` — KRaft, single node)
 - **Network:** backend
-- **Host port:** `9092`
-- **Internal listener:** `kafka:29092` (used by backend containers)
-- **External listener:** `localhost:9092` (used from host for debugging)
-- **Schema Registry companion:** `:8081` — needed in Phase 7, included now to avoid re-config later
-- **Why Zookeeper?** Still the most battle-tested Kafka deployment model. KRaft is the future but ZK is safer for a learning project.
+- **Host port:** `9092` (external listener `PLAINTEXT_HOST` for host debugging)
+- **Internal listener:** `kafka:29092` (used by backend containers); controller quorum on `29093`
+- **KRaft, not ZooKeeper:** `KAFKA_PROCESS_ROLES=controller,broker`, `KAFKA_NODE_ID=1` — single-process broker, modern default, no ZK quorum to operate. Phase-5 switch (was `cp-server` + ZK before).
+- **Version note:** CP images publish patch tags only — always pin the full `x.y.z` (e.g. `7.6.14`), a bare `7.6` tag does not exist on Docker Hub.
+- **High availability note:** one broker → 3 partitions per event topic, `replication-factor=1`. Multi-broker is a config exercise, not a code concern.
+
+### schema-registry (`confluentinc/cp-schema-registry:7.6.14`)
+- **Network:** backend
+- **Host port:** `8089` (internal `schema-registry:8081`)
+- **Purpose:** single source of truth for event contracts. Subjects `<topic>-value`, `FULL` compatibility. Java services compile schemas from `common/events/avro` (`auto.register.schemas=false`); payment-service resolves at runtime.
+- **Register schemas + create topics:** `./scripts/register-schemas.sh`
+
+### kafka-ui (`provectus/kafka-ui:latest`)
+- **Network:** backend
+- **Host port:** `8086`
+- **Purpose:** browse topics/messages (Avro-decoded via the SR connector), consumer groups + lag, and Schema Registry. CSRF token disabled for the demo.
 
 ### keycloak (`quay.io/keycloak/keycloak:26.7.0`)
 - **Networks:** frontend + backend (bridge)
@@ -123,7 +137,7 @@ Kong and Keycloak sit on both networks — they are the entry points in producti
 | Dashboard | Data source | What it shows |
 |---|---|---|
 | Commerce — Logs | Loki | Service logs, JSON parsed, correlation ID filter |
-| Commerce — Metrics | Prometheus | RED (RPS, errors, latency), JVM/Go runtime, business KPIs, circuit breaker |
+| Commerce — Metrics | Prometheus | RED (RPS, errors, latency), JVM/Go runtime, business KPIs, circuit breaker, **Saga — Kafka events** (consumer lag + consumed rate) |
 
 **How logs reach Loki:** The `grafana/loki-docker-driver` plugin (one-time host install) streams each container's stdout to Loki. Each service carries an `svc` label via the `x-logging` anchor. `keep-file: true` preserves `docker compose logs` behavior.
 
@@ -132,7 +146,7 @@ Kong and Keycloak sit on both networks — they are the entry points in producti
 | Service | Metrics endpoint | Format |
 |---|---|---|
 | product-service | `/actuator/prometheus` | Micrometer (JVM, HTTP, `commerce_*`) |
-| order-service | `/actuator/prometheus` | Micrometer (JVM, HTTP, `commerce_*`, circuit breaker) |
+| order-service | `/actuator/prometheus` | Micrometer (JVM, HTTP, `commerce_*`, circuit breaker, **Kafka consumer lag/rate**) |
 | payment-service | `/metrics` | Prometheus client (`grpc_*`, Go runtime) |
 
 ### Application services (one container per service — separate log streams)
@@ -143,8 +157,8 @@ Postgres by container name (`postgres`), so no `localhost` wiring in containers.
 | Service | Image | Host ports | Depends on | Healthcheck | Env (compose) |
 |---|---|---|---|---|---|
 | product-service | Maven build → `eclipse-temurin:21-jre-alpine`, non-root `app` | `8081` | postgres (healthy) | `GET /actuator/health` | `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` |
-| order-service | Maven build → `eclipse-temurin:21-jre-alpine`, non-root `app` | `8082` | postgres (healthy), product-service (started) | `GET /actuator/health` | `DB_URL` (orderdb), `PRODUCT_SERVICE_URL=http://product-service:8081` |
-| payment-service | Go 1.26 build (static, `CGO=0`) → `alpine:3.20`, non-root `app` | `50051` (gRPC), `8090` (REST) | postgres (healthy) | `grpc_health_probe -addr=:50051` | `DB_HOST=postgres`, `DB_NAME=paymentdb`, ports, creds |
+| order-service | Maven build → `eclipse-temurin:21-jre-alpine`, non-root `app` | `8082` | postgres (healthy), product-service (started), kafka (healthy), schema-registry (started) | `GET /actuator/health` | `DB_URL` (orderdb), `PRODUCT_SERVICE_URL=http://product-service:8081`, `KAFKA_BOOTSTRAP_SERVERS=kafka:29092`, `SCHEMA_REGISTRY_URL=http://schema-registry:8081` |
+| payment-service | Go 1.26 build (static, `CGO=0`) → `alpine:3.20`, non-root `app` | `50051` (gRPC), `8090` (REST) | postgres (healthy), kafka (healthy), schema-registry (started) | `grpc_health_probe -addr=:50051` | `DB_HOST=postgres`, `DB_NAME=paymentdb`, ports, creds, `KAFKA_BOOTSTRAP_SERVERS=kafka:29092`, `SCHEMA_REGISTRY_URL=http://schema-registry:8081` |
 | web | `node:22-alpine` + Vite dev server (host source bind-mounted for HMR) | `5173` | — | `GET /` | `WEB_PROXY_PRODUCT`, `WEB_PROXY_ORDER`, `WEB_PROXY_PAYMENT` |
 
 - **Why a container per service?** Independent lifecycles (start/stop/restart/logs per
@@ -171,6 +185,8 @@ Postgres by container name (`postgres`), so no `localhost` wiring in containers.
 | `8080` | Keycloak | HTTP | OIDC auth (admin/admin) |
 | `8081` | Product Service | REST | |
 | `8082` | Order Service | GraphQL | |
+| `8086` | Kafka UI | HTTP | Topics, consumer lag, Schema Registry |
+| `8089` | Schema Registry | HTTP | Subject/version API |
 | `8090` | Payment REST | HTTP | grpc-gateway + Swagger |
 | `9092` | Kafka | Kafka | |
 | `9090` | **Prometheus** | HTTP | Metrics store |

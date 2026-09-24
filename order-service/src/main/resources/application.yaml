@@ -27,6 +27,9 @@ spring:
     locations: classpath:db/migration
     baseline-on-migrate: true
 
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
   graphql:
     graphiql:
       enabled: true
@@ -35,6 +38,8 @@ spring:
         enabled: true    # serves the raw merged schema at /graphql/schema.graphqls
 
 commerce:
+  kafka:
+    schema-registry-url: ${SCHEMA_REGISTRY_URL:http://localhost:8089}
   product-service:
     base-url: ${PRODUCT_SERVICE_URL:http://localhost:8081}
   payment-service:
@@ -42,6 +47,11 @@ commerce:
   order:
     # Identity fallback used when the gateway (X-User-Id header) is absent — local dev via curl.
     default-customer-id: ${DEFAULT_CUSTOMER_ID:22222222-2222-2222-2222-222222222222}
+    outbox:
+      # How often the outbox relay polls for unpublished saga events.
+      poll-interval: ${ORDER_OUTBOX_POLL_INTERVAL:5s}
+      # Max events claimed per poll (FOR UPDATE SKIP LOCKED on the outbox table).
+      batch-size: ${ORDER_OUTBOX_BATCH:10}
     retry:
       # How often the PENDING-order retry job polls for due orders.
       poll-interval: ${ORDER_RETRY_POLL_INTERVAL:15s}

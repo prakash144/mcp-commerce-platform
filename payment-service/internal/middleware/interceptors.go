@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/commerce/payment-service/internal/service"
 	paymentv1 "github.com/commerce/payment-service/pkg/generated"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -27,6 +28,10 @@ func UnaryLogging(logger *slog.Logger) grpc.UnaryServerInterceptor {
 			correlationId = vals[0]
 		} else if vals := md.Get("x-correlation-id"); len(vals) > 0 {
 			correlationId = vals[0]
+		}
+
+		if correlationId != "" {
+			ctx = service.WithCorrelation(ctx, correlationId)
 		}
 
 		start := time.Now()

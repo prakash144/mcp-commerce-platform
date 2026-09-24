@@ -1,0 +1,15 @@
+{
+  "type": "record",
+  "name": "OrderCreated",
+  "namespace": "com.commerce.events",
+  "doc": "Saga start. Published via the order-service transactional outbox after the order is persisted in PENDING state. Carries every field the payment service needs to charge, so it never has to refetch (self-contained fact). Key: orderId.",
+  "fields": [
+    { "name": "orderId", "type": "string" },
+    { "name": "customerId", "type": "string" },
+    { "name": "totalMinor", "type": "long" },
+    { "name": "currency", "type": "string" },
+    { "name": "itemCount", "type": "int" },
+    { "name": "occurredAt", "type": "string" },
+    { "name": "correlationId", "type": "string" }
+  ]
+}

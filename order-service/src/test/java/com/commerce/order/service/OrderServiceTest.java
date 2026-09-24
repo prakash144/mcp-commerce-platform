@@ -13,6 +13,7 @@ import com.commerce.order.dto.OrderStatsOutput;
 import com.commerce.order.entity.Order;
 import com.commerce.order.entity.OrderStatus;
 import com.commerce.order.exception.OrderValidationException;
+import com.commerce.order.event.OrderEventOutbox;
 import com.commerce.order.mapper.OrderMapper;
 import com.commerce.order.observability.OrderMetrics;
 import com.commerce.order.repository.OrderItemRepository;
@@ -59,6 +60,7 @@ class OrderServiceTest {
     @Mock private OrderMetrics orderMetrics;
     @Mock private PlatformTransactionManager transactionManager;
     @Mock private TransactionStatus transactionStatus;
+    @Mock private OrderEventOutbox orderEventOutbox;
 
     private final Map<UUID, Order> store = new HashMap<>();
 
@@ -97,7 +99,7 @@ class OrderServiceTest {
         orderService = new OrderService(
                 orderRepository, orderItemRepository, mapper,
                 productClient, paymentClient, customerContext,
-                orderMetrics, tx);
+                orderMetrics, orderEventOutbox, tx);
         ReflectionTestUtils.setField(orderService, "maxAttempts", 5);
         ReflectionTestUtils.setField(orderService, "initialBackoff", java.time.Duration.ofSeconds(30));
         ReflectionTestUtils.setField(orderService, "maxBackoff", java.time.Duration.ofMinutes(15));
@@ -334,13 +336,13 @@ class OrderServiceTest {
     }
 
     @Test
-    void cancelOrderRejectsConfirmed() {
+    void cancelOrderAllowsConfirmed() {
         UUID orderId = UUID.randomUUID();
         seed(Order.builder().id(orderId).status(OrderStatus.CONFIRMED).build());
 
-        assertThatThrownBy(() -> orderService.cancelOrder(orderId))
-                .isInstanceOf(OrderValidationException.class)
-                .hasMessageContaining("cannot be cancelled");
+        OrderOutput out = orderService.cancelOrder(orderId);
+
+        assertThat(out.getStatus()).isEqualTo(OrderStatus.CANCELLED);
     }
 
     @Test

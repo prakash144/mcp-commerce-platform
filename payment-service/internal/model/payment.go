@@ -27,7 +27,7 @@ const (
 type Payment struct {
 	ID             string        `gorm:"primaryKey;type:uuid"`
 	OrderID        string        `gorm:"type:uuid;not null;index"`
-	CustomerID     string        `gorm:"type:uuid;not null"`
+	CustomerID     string        `gorm:"type:varchar(255);not null"`
 	AmountMinor    int64         `gorm:"not null"`
 	Currency       string        `gorm:"type:varchar(3);not null"`
 	Status         PaymentStatus `gorm:"type:varchar(32);not null"`

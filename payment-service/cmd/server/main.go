@@ -8,11 +8,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/commerce/payment-service/api"
 	"github.com/commerce/payment-service/internal/config"
+	"github.com/commerce/payment-service/internal/event"
 	"github.com/commerce/payment-service/internal/handler"
 	"github.com/commerce/payment-service/internal/middleware"
 	"github.com/commerce/payment-service/internal/model"
@@ -48,10 +50,43 @@ func main() {
 		slog.Error("failed to migrate database", "error", err)
 		os.Exit(1)
 	}
+	// customer identity is a free-form external id (see order-service VARCHAR and
+	// the avro OrderCreated.customerId), not a uuid. AutoMigrate does not change
+	// existing column types, so widen columns created by earlier boots here.
+	if err := db.Exec(`ALTER TABLE payments ALTER COLUMN customer_id TYPE varchar(255) USING customer_id::varchar(255)`).Error; err != nil {
+		slog.Error("failed to widen payments.customer_id", "error", err)
+		os.Exit(1)
+	}
 	slog.Info("database connected and migrated")
 
 	repo := repository.NewPaymentRepository(db)
-	svc := service.NewPaymentService(repo)
+
+	slog.Info("connecting to kafka", "bootstrap", cfg.KafkaBootstrap, "schemaRegistry", cfg.SchemaRegistryURL)
+	brokers := strings.Split(cfg.KafkaBootstrap, ",")
+	publisher, err := event.NewPublisher(brokers, cfg.SchemaRegistryURL, sl)
+	if err != nil {
+		slog.Error("failed to init kafka publisher", "error", err)
+		os.Exit(1)
+	}
+	svc := service.NewPaymentService(repo, service.WithEventPublisher(publisher))
+
+	compReqCtx, stopCompensation := context.WithCancel(context.Background())
+	compensation, err := event.NewCancellationConsumer(brokers, cfg.SchemaRegistryURL,
+		func(ctx context.Context, m event.CancellationMsg) error {
+			ctx = service.WithCorrelation(ctx, m.CorrelationID)
+			return svc.HandleOrderCancelled(ctx, m.OrderID, m.Reason)
+		}, sl)
+	if err != nil {
+		slog.Error("failed to init compensation consumer", "error", err)
+		os.Exit(1)
+	}
+	go func() {
+		slog.Info("compensation consumer started", "topic", event.TopicOrdersCancelled, "group", event.CompensationGroupID)
+		if err := compensation.Run(compReqCtx); err != nil {
+			slog.Error("compensation consumer stopped unexpectedly", "error", err)
+		}
+	}()
+
 	h := handler.NewPaymentHandler(svc)
 
 	metrics := observability.NewMetrics()
@@ -84,6 +119,13 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	slog.Info("shutting down gracefully")
+	stopCompensation()
+	if err := compensation.Close(); err != nil {
+		slog.Error("compensation consumer close error", "error", err)
+	}
+	if err := publisher.Close(); err != nil {
+		slog.Error("kafka publisher close error", "error", err)
+	}
 	srv.GracefulStop()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

@@ -1,0 +1,12 @@
+{
+  "type": "record",
+  "name": "OrderCancelled",
+  "namespace": "com.commerce.events",
+  "doc": "Saga compensation trigger. Published via the order-service transactional outbox after an order commits to CANCELLED. The payment-service consumer reacts by refunding/voiding the associated payment. Key: orderId.",
+  "fields": [
+    { "name": "orderId", "type": "string" },
+    { "name": "reason", "type": "string" },
+    { "name": "occurredAt", "type": "string" },
+    { "name": "correlationId", "type": "string" }
+  ]
+}

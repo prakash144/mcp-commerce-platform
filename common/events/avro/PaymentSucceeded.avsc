@@ -1,0 +1,15 @@
+{
+  "type": "record",
+  "name": "PaymentSucceeded",
+  "namespace": "com.commerce.events",
+  "doc": "Published by payment-service after a Charge settles successfully. Consumers (order-service) transition the order to PAID with a set-once guard; duplicates are expected (at-least-once) and must be idempotent. Key: orderId.",
+  "fields": [
+    { "name": "orderId", "type": "string" },
+    { "name": "paymentId", "type": "string" },
+    { "name": "idempotencyKey", "type": "string" },
+    { "name": "amountMinor", "type": "long" },
+    { "name": "currency", "type": "string" },
+    { "name": "occurredAt", "type": "string" },
+    { "name": "correlationId", "type": "string" }
+  ]
+}

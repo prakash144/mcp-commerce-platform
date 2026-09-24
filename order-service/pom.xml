@@ -123,6 +123,30 @@
             <version>2.4.0</version>
         </dependency>
 
+        <!-- 11. Kafka (spring-kafka) — consumer/producer for the saga -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+        </dependency>
+
+        <!-- 12. Avro + Confluent Schema Registry (Avro serializers/deserializers,
+                contract-first: classes generated from common/events/avro/*.avsc) -->
+        <dependency>
+            <groupId>org.apache.avro</groupId>
+            <artifactId>avro</artifactId>
+            <version>1.11.4</version>
+        </dependency>
+        <dependency>
+            <groupId>io.confluent</groupId>
+            <artifactId>kafka-avro-serializer</artifactId>
+            <version>7.6.0</version>
+        </dependency>
+        <dependency>
+            <groupId>io.confluent</groupId>
+            <artifactId>kafka-schema-registry-client</artifactId>
+            <version>7.6.0</version>
+        </dependency>
+
         <!-- Tests -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -136,6 +160,14 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <repositories>
+        <!-- Confluent serializers + schema-registry client live in Confluent's Maven repo -->
+        <repository>
+            <id>confluent</id>
+            <url>https://packages.confluent.io/maven/</url>
+        </repository>
+    </repositories>
 
     <build>
         <plugins>
@@ -177,6 +209,24 @@
                     <execution>
                         <phase>initialize</phase>
                         <goals><goal>detect</goal></goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- Avro codegen: generate com.commerce.events.* SpecificRecords from
+                 common/events/avro/*.avsc (single source of truth for the contract). -->
+            <plugin>
+                <groupId>org.apache.avro</groupId>
+                <artifactId>avro-maven-plugin</artifactId>
+                <version>1.11.4</version>
+                <executions>
+                    <execution>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>schema</goal>
+                        </goals>
+                        <configuration>
+                            <sourceDirectory>${project.basedir}/../common/events/avro</sourceDirectory>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>

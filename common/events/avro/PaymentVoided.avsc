@@ -1,0 +1,12 @@
+{
+  "type": "record",
+  "name": "PaymentVoided",
+  "namespace": "com.commerce.events",
+  "doc": "Published by payment-service after a captured-but-unsettled payment is voided (compensation for a cancelled order). Consumers mark the order CANCELLED/terminal. Key: orderId.",
+  "fields": [
+    { "name": "orderId", "type": "string" },
+    { "name": "paymentId", "type": "string" },
+    { "name": "occurredAt", "type": "string" },
+    { "name": "correlationId", "type": "string" }
+  ]
+}
